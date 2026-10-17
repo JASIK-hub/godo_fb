@@ -2,8 +2,9 @@ import 'reflect-metadata';
 import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { MulterModule } from '@nestjs/platform-express';
-import { mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { access, mkdir } from 'node:fs/promises';
+import { extname, join } from 'node:path';
 import type { Request, Response, NextFunction } from 'express';
 import { Config } from './config';
 import { ApiKeyGuard, SessionGuard, Sessions } from './auth';
@@ -19,6 +20,7 @@ import { HealthController } from './health';
 
 export async function createApp() {
   const config = new Config();
+  if (config.staticDir) await access(join(config.staticDir, 'index.html'));
   const directory = join(config.dataDir, 'uploads');
   await mkdir(directory, { recursive: true });
   @Module({
@@ -28,12 +30,24 @@ export async function createApp() {
       Jobs, MlClient, Sessions, ApiKeyGuard, SessionGuard, CapacityInterceptor],
   })
   class AppModule {}
-  const app = await NestFactory.create(AppModule, { logger: ['error', 'warn'], abortOnError: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: ['error', 'warn'], abortOnError: false });
   app.use((_: Request, res: Response, next: NextFunction) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-ancestors 'none'");
     next();
   });
+  if (config.staticDir) {
+    const root = config.staticDir;
+    app.useStaticAssets(join(root, 'assets'), { prefix: '/assets/', index: false, dotfiles: 'deny' });
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      // SPA fallback must never consume API/health requests or missing asset URLs.
+      if (!['GET', 'HEAD'].includes(req.method) || /^\/(api|health|assets)(\/|$)/i.test(req.path) ||
+          extname(req.path) || req.path.split('/').some(segment => segment.startsWith('.')) || !req.accepts('html')) return next();
+      res.sendFile(join(root, 'index.html'));
+    });
+  }
   app.enableCors({ origin: config.uiOrigin, credentials: true, methods: ['GET', 'POST', 'DELETE'], allowedHeaders: ['Content-Type'] });
   app.enableShutdownHooks();
   return { app, config };

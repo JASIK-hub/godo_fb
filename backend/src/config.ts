@@ -22,6 +22,7 @@ export class Config {
   readonly fileTtl = this.integer('VIDEO_RETENTION_MS', 3600000, 604800000);
   readonly cleanupInterval = this.integer('CLEANUP_INTERVAL_MS', 60000, 3600000);
   readonly dataDir = resolve(process.env.DATA_DIR ?? './data');
+  readonly staticDir = process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : undefined;
   readonly rulesPath = resolve(process.env.RULES_PATH ?? './config/rules.json');
   readonly ffmpeg = process.env.FFMPEG_PATH ?? 'ffmpeg';
   readonly ffprobe = process.env.FFPROBE_PATH ?? 'ffprobe';

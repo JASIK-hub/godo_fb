@@ -4,5 +4,6 @@
 **/.env
 .env
 backend/data
+backend/config/rules.json
 local
 **/Reference_*.ts

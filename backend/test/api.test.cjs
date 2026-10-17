@@ -5,7 +5,7 @@ const request = require('supertest');
 const SwaggerParser = require('@apidevtools/swagger-parser');
 const { createApp } = require('../dist/app');
 const { Config } = require('../dist/config');
-const { mkdtemp, rm, readFile, writeFile, readdir, utimes } = require('node:fs/promises');
+const { mkdtemp, mkdir, rm, readFile, writeFile, readdir, utimes } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
 const { execFileSync, spawn, spawnSync } = require('node:child_process');
@@ -243,15 +243,20 @@ test('explicit stub returns clearly marked demo results; jobs and sessions expir
 
 test('29 MiB synthetic MOV decodes and no_violation maps to public pass', async () => {
   assert.ok(largeVideo.length > 29 * 1024 * 1024 && largeVideo.length < 30 * 1024 * 1024);
-  mlMode = 'pass';
-  const result = await api.post('/api/v1/analyze').set('X-API-Key', API_KEY)
-    .attach('file', largeVideo, { filename: '../../unsafe.MOV', contentType: 'video/quicktime' }).expect(202);
-  const done = await poll(result.body.job_id);
-  assert.equal(done.status, 'done');
-  assert.equal(done.verdict, 'pass');
-  assert.deepEqual(done.violations, []);
-  assert.match(app.get(Store).get(result.body.job_id).file, /^[a-f0-9-]{36}$/);
-  mlMode = 'success';
+  const config = app.get(Config);
+  const timeout = config.timeout;
+  try {
+    // Uploading 29 MiB to the local test server is not the timeout scenario.
+    config.timeout = 3000;
+    mlMode = 'pass';
+    const result = await api.post('/api/v1/analyze').set('X-API-Key', API_KEY)
+      .attach('file', largeVideo, { filename: '../../unsafe.MOV', contentType: 'video/quicktime' }).expect(202);
+    const done = await poll(result.body.job_id);
+    assert.equal(done.status, 'done', JSON.stringify(done));
+    assert.equal(done.verdict, 'pass');
+    assert.deepEqual(done.violations, []);
+    assert.match(app.get(Store).get(result.body.job_id).file, /^[a-f0-9-]{36}$/);
+  } finally { mlMode = 'success'; config.timeout = timeout; }
 });
 
 test('corrupt video fails before contacting ML', async () => {
@@ -279,6 +284,32 @@ test('queued deadline expires without inference; API remains responsive', async 
 
 test('readiness checks media tools, local database and ML health', async () => {
   await api.get('/health/ready').expect(200);
+});
+
+test('Nest serves built UI and SPA routes without bypassing API authorization', async () => {
+  const saved = { ...process.env };
+  let web;
+  try {
+    const root = join(testDir, 'static');
+    await mkdir(join(root, 'assets'), { recursive: true });
+    await writeFile(join(root, 'index.html'), '<!doctype html><title>Synthetic UI</title>');
+    await writeFile(join(root, 'assets', 'app.js'), '/* synthetic bundle */');
+    Object.assign(process.env, { STATIC_DIR: root, DATA_DIR: join(testDir, 'static-data') });
+    ({ app: web } = await createApp());
+    await web.init();
+    const client = request(web.getHttpServer());
+    await client.get('/').expect(200).expect(/Synthetic UI/);
+    await client.get('/review/example').set('Accept', 'text/html').expect(200).expect(/Synthetic UI/);
+    await client.get('/assets/app.js').expect(200).expect(/synthetic bundle/);
+    await client.get('/assets/missing.js').expect(404);
+    await client.get('/assets/missing').expect(404);
+    await client.get('/.env').expect(404);
+    await client.get('/health/live').expect(200, { status: 'ok' });
+    await client.get('/api/v1/jobs/missing').expect(401);
+    await client.post('/api/v1/analyze').expect(401);
+    await client.get('/api/v1/jobs/missing').set('X-API-Key', API_KEY).expect(404);
+    await client.get('/api/unknown').expect(404);
+  } finally { await web?.close(); process.env = saved; }
 });
 
 test('duration limit is enforced before ML and retention deletes old orphan uploads', async () => {

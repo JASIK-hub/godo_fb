@@ -2,6 +2,8 @@
 
 NestJS API + worker внутри одного процесса, локальный SQLite WAL и дисковые видео. Node 24.14+ ветки 24, FFmpeg/FFprobe обязательны.
 
+NestJS также раздаёт production-сборку UI: задайте STATIC_DIR на каталог frontend/dist. В Docker сборка уже лежит в /app/public. Отдельный сервер статики не требуется; API и UI используют один порт. Если STATIC_DIR не задан, backend обслуживает только API. Dockerfile собирается с контекстом корня репозитория.
+
 Основные инструкции: [корневой README](../README.md), [архитектура и результаты аудита](../docs/architecture.md), [требования к ML](../docs/ml-integration.md), [контракт](../contracts/public-api.yaml).
 
 ## Запуск
@@ -43,7 +45,7 @@ curl --fail-with-body "$BASE_URL/api/v1/jobs/$JOB_ID" \
 - `POST /api/v1/analyze`: X-API-Key, multipart file, 202 с job_id после записи файла и состояния. Декодирование/ML идут в worker.
 - `GET /api/v1/jobs/{job_id}`: X-API-Key; processing/done/failed. Готовый результат содержит verdict pass/fail, violations и source.
 - `POST /api/v1/ui/session`: отдельный access_code → HttpOnly cookie. `DELETE` отзывает сессию. UI отправляет credentials include и использует `/api/v1/ui/analyze`, `/api/v1/ui/jobs/{job_id}`. Машинный ключ в UI не передаётся.
-- `GET /health/live`, `GET /health/ready`: состояние процесса и зависимостей; тела не содержат секретов/пользовательских данных. Compose не публикует backend-порт.
+- `GET /health/live`, `GET /health/ready`: состояние процесса и зависимостей; тела не содержат секретов/пользовательских данных. Compose публикует backend на loopback:8080 вместе с UI.
 
 UI mutations требуют точного Origin. Production cookies требуют HTTPS и same-site UI/API. UI-сессии хранятся в SQLite, переживают рестарт и действуют до TTL/logout; смена access_code сама по себе старые сессии не отзывает.
 

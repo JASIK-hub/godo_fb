@@ -1,26 +1,35 @@
+FROM node:24.20.0-bookworm-slim AS ui-build
+WORKDIR /ui
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY frontend/ ./
+ENV VITE_USE_MOCKS=false VITE_API_BASE_URL=""
+RUN npm run build
+
 FROM node:24.20.0-bookworm-slim AS base
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 FROM base AS build
-COPY package.json package-lock.json ./
+COPY backend/package.json backend/package-lock.json ./
 RUN npm ci --ignore-scripts
-COPY tsconfig.json ./
-COPY src ./src
+COPY backend/tsconfig.json ./
+COPY backend/src ./src
 RUN npm run build
 
 FROM build AS test
-COPY test ./test
-COPY config ./config
-# Mount/copy the repository contract to /contracts when running npm test.
+COPY backend/test ./test
+COPY backend/config ./config
+COPY contracts /contracts
 CMD ["npm", "test"]
 
 FROM base AS runtime
-ENV NODE_ENV=production DATA_DIR=/data
-COPY package.json package-lock.json ./
+ENV NODE_ENV=production DATA_DIR=/data STATIC_DIR=/app/public
+COPY backend/package.json backend/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=build /app/dist ./dist
+COPY --from=ui-build /ui/dist ./public
 RUN mkdir /data && chown node:node /data
 USER node
 EXPOSE 3000

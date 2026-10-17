@@ -1,20 +1,11 @@
 name: godo
 services:
-  ui:
-    image: godo-ui:local
-    build:
-      context: .
-      dockerfile: deploy/ui.Dockerfile
-    ports: ["${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:80"]
-    networks: [ingress, processing]
-    depends_on:
-      backend:
-        condition: service_started
-    restart: unless-stopped
-    security_opt: ["no-new-privileges:true"]
   backend:
     image: godo-backend:local
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports: ["${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:3000"]
     init: true
     environment:
       NODE_ENV: production
@@ -27,6 +18,7 @@ services:
       ML_ALLOWED_HOSTS: ml
       ML_API_KEY: ${ML_API_KEY:-}
       DATA_DIR: /data
+      STATIC_DIR: /app/public
       RULES_PATH: /rules/rules.json
       ML_TIMEOUT_MS: ${ML_TIMEOUT_MS:-180000}
       MEDIA_TIMEOUT_MS: ${MEDIA_TIMEOUT_MS:-30000}
@@ -82,7 +74,6 @@ services:
     stop_grace_period: 30s
     restart: unless-stopped
 networks:
-  ingress: {}
   processing:
     name: godo-processing
     internal: true
