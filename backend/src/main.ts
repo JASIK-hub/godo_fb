@@ -1,3 +1,5 @@
+// Vercel's NestJS entrypoint detector requires a direct framework import here.
+import '@nestjs/core';
 import { createApp } from './app';
 import { ConfigurationError } from './config';
 

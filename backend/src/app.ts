@@ -34,6 +34,13 @@ export async function createApp() {
   })
   class AppModule {}
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: ['error', 'warn'], abortOnError: false });
+  // Register before any middleware that can finish a response.
+  app.enableCors({
+    origin: config.uiOrigin,
+    credentials: false,
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'X-API-Key'],
+  });
   app.use((_: Request, res: Response, next: NextFunction) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -50,43 +57,6 @@ export async function createApp() {
       res.sendFile(join(root, 'index.html'));
     });
   }
-  app.enableCors({
-    origin: config.uiOrigin,
-    credentials: false,
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-API-Key'],
-  });
   app.enableShutdownHooks();
   return { app, config };
-}
-
-let serverlessApp: Promise<NestExpressApplication> | undefined;
-
-async function initializeServerlessApp(): Promise<NestExpressApplication> {
-  const { app } = await createApp();
-  try {
-    await app.init();
-    return app;
-  } catch (error) {
-    await app.close();
-    throw error;
-  }
-}
-
-export default async function handler(req: Request, res: Response): Promise<void> {
-  let app: NestExpressApplication;
-  try {
-    serverlessApp ??= initializeServerlessApp().catch(error => {
-      serverlessApp = undefined;
-      throw error;
-    });
-    app = await serverlessApp;
-  } catch {
-    res.statusCode = 503;
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Cache-Control', 'no-store');
-    res.end(JSON.stringify({ message: 'Backend initialization failed' }));
-    return;
-  }
-  app.getHttpAdapter().getInstance()(req, res);
 }
