@@ -8,7 +8,7 @@ import { extname, join } from 'node:path';
 import type { Request, Response, NextFunction } from 'express';
 import { Config, ConfigurationError } from './config';
 import { ApiKeyGuard } from './auth';
-import { PublicController } from './controllers';
+import { PublicController, SiteController } from './controllers';
 import { Jobs } from './jobs';
 import { MlClient } from './ml';
 import { CapacityInterceptor, uploadOptions } from './upload';
@@ -28,7 +28,7 @@ export async function createApp() {
   catch { throw new ConfigurationError('DATA_DIR must be writable so the backend can store uploads'); }
   @Module({
     imports: [MulterModule.register(uploadOptions(directory, config.maxUpload))],
-    controllers: [PublicController, HealthController],
+    controllers: [PublicController, SiteController, HealthController],
     providers: [{ provide: Config, useValue: config }, Store, Worker, Media,
       Jobs, MlClient, ApiKeyGuard, CapacityInterceptor],
   })
@@ -53,7 +53,7 @@ export async function createApp() {
   }
   app.enableCors({
     origin: config.uiOrigin,
-    credentials: true,
+    credentials: false,
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'X-API-Key'],
   });

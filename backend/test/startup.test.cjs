@@ -33,8 +33,22 @@ test('production starts without a backend regulatory catalog', async () => {
       ML_STUB_ENABLED: 'false', ML_SERVICE_URL: 'http://localhost:9999/analyze', DATA_DIR: dir });
     delete process.env.RULES_PATH;
     ({ app } = await require('../dist/app').createApp());
-    await app.init();
-    await require('supertest')(app.getHttpServer()).get('/health/live').expect(200);
+    await app.listen(0, '127.0.0.1');
+    const api = require('supertest')(app.getHttpServer());
+    await api.get('/health/live').expect(200);
+    // Unavailable ML must not remove routes or turn upload validation into Cannot POST.
+    for (const scope of ['site', 'v1']) {
+      let post = api.post(`/api/${scope}/analyze`);
+      let get = api.get(`/api/${scope}/jobs/missing`);
+      if (scope === 'v1') {
+        post.set('X-API-Key', base.JURY_API_KEY);
+        get.set('X-API-Key', base.JURY_API_KEY);
+      }
+      const invalid = await post.expect(400);
+      assert.equal(invalid.body.message, 'Expected multipart/form-data');
+      const missing = await get.expect(404);
+      assert.equal(missing.body.message, 'Job not found');
+    }
   } finally { await app?.close(); process.env = previous; await rm(dir, { recursive: true, force: true }); }
 });
 

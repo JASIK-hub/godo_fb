@@ -17,7 +17,7 @@ export default function App() {
 
   const { job, phase, error } = useJobPolling(jobId);
 
-  /** Начать анализ: POST /api/v1/analyze → переход к опросу задачи. */
+  /** Начать анализ: POST /api/site/analyze → переход к опросу задачи. */
   const handleUpload = async (file: File) => {
     setUploading(true);
     setUploadError(null);
@@ -60,10 +60,10 @@ export default function App() {
       </main>
       <AppFooter />
 
-      {isMockMode && (
+      {(isMockMode || job?.source === 'stub') && (
         <div className="fixed bottom-6 left-6 bg-inverse-surface text-inverse-on-surface px-4 py-3 rounded-lg shadow-xl text-body-md z-50 flex items-center gap-2">
           <span className="material-symbols-outlined text-tertiary-fixed text-[18px]">science</span>
-          Режим мока: backend недоступен, данные искусственные
+          Демонстрационный режим: данные искусственные
         </div>
       )}
     </div>

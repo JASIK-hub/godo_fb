@@ -436,7 +436,7 @@ export function ResultScreen({ job, onReset }: ResultScreenProps) {
                   <div className="flex flex-col gap-0.5 min-w-0">
                     <div className="flex items-center gap-1 flex-wrap">
                       <span className="font-label-md text-label-md text-on-surface font-semibold">
-                        {selected.source?.document ?? 'Нормативный источник'}
+                        {selected.source?.document || 'Источник указан в описании нарушения'}
                       </span>
                       {selected.source?.clause && (
                         <span className="font-label-sm text-[10px] uppercase tracking-wide bg-surface-container-high text-secondary px-1.5 py-0.5 rounded">

@@ -1,9 +1,7 @@
 /**
  * Типы данных API.
  *
- * ВАЖНО: контракта contracts/public-api.yaml пока нет, это ПРЕДПОЛОЖЕНИЕ,
- * согласованное с задачей. После появления контракта привести сюда типы
- * в точности по contracts/public-api.yaml.
+ * PublicJob — транспортный контракт; Job — модель представления экрана.
  */
 
 /** Статусы задачи анализа. */
@@ -48,6 +46,7 @@ export interface JobResult {
 
 /** Состояние задачи анализа (GET /api/v1/jobs/{job_id}). */
 export interface Job {
+  source?: 'ml' | 'stub';
   job_id: string;
   status: JobStatus;
   /** Прогресс обработки 0..100, если backend отдаёт. */
@@ -57,3 +56,10 @@ export interface Job {
   /** Результат при status === 'done'. */
   result?: JobResult;
 }
+
+export type PublicJob = { job_id: string } & (
+  | { status: 'processing' }
+  | { status: 'failed'; error: { code: string; message: string } }
+  | { status: 'done'; source: 'ml' | 'stub'; verdict: 'pass' | 'fail';
+      violations: { code: string; message: string; timestamp_seconds: number }[] }
+);

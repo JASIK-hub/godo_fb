@@ -22,12 +22,12 @@ export type {
 /** true, если UI работает на моках (для бейджа в интерфейсе). */
 export const isMockMode = config.useMocks;
 
-/** POST /api/v1/analyze — загрузка видео (мок или реальный вызов). */
+/** POST /api/site/analyze — загрузка видео (мок или реальный вызов). */
 export function analyzeVideo(file: File): Promise<AnalyzeResponse> {
   return config.useMocks ? mock.mockAnalyze(file) : client.analyzeVideo(file);
 }
 
-/** GET /api/v1/jobs/{jobId} — состояние задачи (мок или реальный вызов). */
+/** GET /api/site/jobs/{jobId} — состояние задачи (мок или реальный вызов). */
 export function getJob(jobId: string): Promise<Job> {
   return config.useMocks ? mock.mockGetJob(jobId) : client.getJob(jobId);
 }

@@ -67,7 +67,7 @@ export function ProcessingScreen({ job, phase, error, onReset }: ProcessingScree
                   {job?.error ?? error ?? 'Неизвестная ошибка обработки.'}
                 </div>
                 <div className="font-body-sm text-body-sm opacity-70 mt-1">
-                  Это не «нарушений нет» — видео не удалось обработать.
+                   Видео не удалось обработать.
                 </div>
               </div>
             </div>

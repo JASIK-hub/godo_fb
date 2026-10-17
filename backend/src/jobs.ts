@@ -1,5 +1,8 @@
 ﻿import { Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { BadRequestException } from '@nestjs/common';
+import { unlink } from 'node:fs/promises';
+import type { UploadRequest } from './upload';
 import { basename } from 'node:path';
 import { Config } from './config';
 import { Store } from './store';
@@ -19,6 +22,17 @@ export class Jobs {
     this.uploading++;
   }
   releaseUpload() { this.uploading--; }
+  async acceptUpload(file: Express.Multer.File | undefined, req: UploadRequest, owner: string) {
+    if (!file || file.size === 0) {
+      if (file) await unlink(file.path);
+      throw new BadRequestException('A nonempty file is required');
+    }
+    let result;
+    try { result = this.submit(file, owner, req.started!); }
+    catch (error) { await unlink(file.path).catch(() => {}); throw error; }
+    req.submitted = true;
+    return result;
+  }
   submit(file: Express.Multer.File, owner: string, started: number) {
     const id = randomUUID();
     this.store.insert({ id, owner, file: basename(file.path), mime: file.mimetype, created: started,

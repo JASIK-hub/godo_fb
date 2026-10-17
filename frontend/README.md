@@ -12,15 +12,15 @@ npm run dev      # http://localhost:5173
 Адрес backend и режим мока настраиваются в `.env.local` (шаблон — `.env.example`):
 
 ```
-VITE_API_BASE_URL=http://backend:8000
+VITE_API_BASE_URL=http://localhost:3000
 VITE_USE_MOCKS=true|false
 ```
 
 ## Экраны
 
 - **Загрузка** — выбор/перетаскивание видео, валидация (только видео, до 500 МБ),
-  POST /api/v1/analyze (поле `file`).
-- **Обработка** — опрос GET /api/v1/jobs/{job_id} раз в 2 с; остановка при `done`/`failed`
+  POST /api/site/analyze (поле `file`).
+- **Обработка** — опрос GET /api/site/jobs/{job_id} раз в 2 с; остановка при `done`/`failed`
   и при уходе со страницы. Прогресс-бар из поля `progress` (если backend отдаёт).
 - **Результат** — verdict и все события: тип, таймкод, описание, кадры (галерея),
   нормативный источник. При `failed`/сетевой ошибке показывается ошибка,
@@ -28,7 +28,7 @@ VITE_USE_MOCKS=true|false
 
 ## Моки
 
-Пока контракта `contracts/public-api.yaml` и backend нет, по умолчанию `VITE_USE_MOCKS=true`:
+Контракт описан в `contracts/public-api.yaml`. По умолчанию моки выключены. При явном `VITE_USE_MOCKS=true`
 работает имитация (10 с «обработки», примеры событий, имитация сбоя — если файл пустой).
 Бейдж вверху страницы показывает режим мока. Моки отделены: `src/api/mock.ts`,
 выбор — в `src/api/index.ts`.

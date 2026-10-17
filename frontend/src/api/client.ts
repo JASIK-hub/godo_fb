@@ -1,12 +1,10 @@
 /**
  * Реальный HTTP-клиент API.
  *
- * Источник истины — contracts/public-api.yaml. Пока контракта нет,
- * пути и поля — предположение; после появления контракта сверить и
- * привести в точное соответствие.
+ * Серверный proxy сохраняет схему contracts/public-api.yaml.
  */
 import { config } from '../config';
-import type { AnalyzeResponse, Job } from './types';
+import type { AnalyzeResponse, Job, PublicJob } from './types';
 
 /** Ошибка HTTP-запроса с кодом ответа. */
 export class ApiError extends Error {
@@ -19,10 +17,10 @@ export class ApiError extends Error {
   }
 }
 
-/** Общая обёртка fetch: cookie сессии backend передаётся с каждым запросом. */
+/** Браузер обращается к proxy без ключа и пользовательской сессии. */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${config.apiBaseUrl}${path}`, {
-    credentials: 'include',
+    credentials: 'omit',
     ...init,
   });
 
@@ -47,17 +45,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** POST /api/v1/analyze — загрузка видео на анализ, поле file. */
+/** POST /api/site/analyze — загрузка видео на анализ, поле file. */
 export async function analyzeVideo(file: File): Promise<AnalyzeResponse> {
   const form = new FormData();
   form.append('file', file);
-  return request<AnalyzeResponse>('/api/v1/analyze', {
+  return request<AnalyzeResponse>('/api/site/analyze', {
     method: 'POST',
     body: form,
   });
 }
 
-/** GET /api/v1/jobs/{jobId} — состояние задачи анализа. */
+/** GET /api/site/jobs/{jobId} — состояние задачи анализа. */
 export async function getJob(jobId: string): Promise<Job> {
-  return request<Job>(`/api/v1/jobs/${encodeURIComponent(jobId)}`);
+  const job = await request<PublicJob>(`/api/site/jobs/${encodeURIComponent(jobId)}`);
+  if (job.status === 'failed') return { ...job, error: job.error.message };
+  if (job.status === 'processing') return job;
+  return {
+    job_id: job.job_id, status: job.status, source: job.source,
+    result: {
+      verdict: job.verdict === 'pass' ? 'Нарушений не обнаружено' : 'Обнаружены нарушения',
+      events: job.violations.map(violation => ({
+        type: violation.code, description: violation.message,
+        timecode: violation.timestamp_seconds === undefined ? '—' : String(violation.timestamp_seconds),
+        frames: [], source: { document: '' },
+      })),
+    },
+  };
 }

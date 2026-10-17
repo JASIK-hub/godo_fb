@@ -59,7 +59,7 @@ before(async () => {
   process.env.ML_HEALTH_URL = `http://127.0.0.1:${ml.address().port}/health`;
   process.env.ML_API_KEY = 'separate-ml-key';
   ({ app } = await createApp());
-  await app.init();
+  await app.listen(0, '127.0.0.1');
   api = request(app.getHttpServer());
 });
 
@@ -71,9 +71,11 @@ after(async () => {
 });
 
 const upload = () => api.post('/api/v1/analyze').set('X-API-Key', API_KEY).attach('file', video, { filename: 'clip.mp4', contentType: 'video/mp4' });
-async function poll(id) {
+async function poll(id, scope = 'v1') {
   for (let i = 0; i < 500; i++) {
-    const result = await api.get(`/api/v1/jobs/${id}`).set('X-API-Key', API_KEY).expect(200);
+    const req = api.get(`/api/${scope}/jobs/${id}`);
+    if (scope === 'v1') req.set('X-API-Key', API_KEY);
+    const result = await req.expect(200);
     if (result.body.status !== 'processing') return result.body;
     await new Promise(resolve => setTimeout(resolve, 10));
   }
@@ -289,6 +291,45 @@ test('29 MiB synthetic MOV decodes and no_violation maps to public pass', async 
   } finally { mlMode = 'success'; config.timeout = timeout; }
 });
 
+test('site controller accepts 29 MiB MOV without credentials and shares API response schema', async () => {
+  const config = app.get(Config);
+  const timeout = config.timeout;
+  try {
+    config.timeout = 3000;
+    mlMode = 'pass';
+    const missing = await api.get('/api/v1/jobs/missing').set('X-API-Key', API_KEY).expect(404);
+    const proxied = await api.get('/api/site/jobs/missing').set('Origin', origin).expect(404);
+    assert.deepEqual(proxied.body, missing.body);
+    assert.equal(proxied.headers['access-control-allow-origin'], origin);
+    assert.equal(proxied.headers['set-cookie'], undefined);
+    const bad = await api.post('/api/site/analyze').set('Origin', origin).send({}).expect(400);
+    const directBad = await api.post('/api/v1/analyze').set('X-API-Key', API_KEY).send({}).expect(400);
+    assert.deepEqual(bad.body, directBad.body);
+    config.timeout = 10000; // Force existing deadline admission control to reject the upload.
+    const busy = await api.post('/api/site/analyze').set('Origin', origin)
+      .attach('file', video, { filename: 'synthetic.mov', contentType: 'video/quicktime' }).expect(503);
+    const directBusy = await upload().expect(503);
+    assert.deepEqual(busy.body, directBusy.body);
+    config.timeout = 3000;
+    const result = await api.post('/api/site/analyze').set('Origin', origin)
+      .attach('file', largeVideo, { filename: 'synthetic.mov', contentType: 'video/quicktime' }).expect(202);
+    assert.deepEqual(Object.keys(result.body), ['job_id']);
+    const done = await poll(result.body.job_id, 'site');
+    const siteDone = await api.get(`/api/site/jobs/${result.body.job_id}`).set('Origin', origin).expect(200);
+    assert.deepEqual(siteDone.body, done);
+    assert.equal(done.status, 'done');
+    assert.equal(done.verdict, 'pass');
+    assert.equal(app.get(Store).get(result.body.job_id).owner, 'site');
+    await api.get(`/api/v1/jobs/${result.body.job_id}`).set('X-API-Key', API_KEY).expect(404);
+    for (const response of [missing, proxied, bad, result, siteDone]) {
+      assert.equal(JSON.stringify(response.headers).includes(API_KEY), false);
+      assert.equal(response.text.includes(API_KEY), false);
+    }
+    await api.post('/api/v1/analyze').expect(401);
+    await api.get(`/api/v1/jobs/${result.body.job_id}`).expect(401);
+  } finally { mlMode = 'success'; config.timeout = timeout; }
+});
+
 test('corrupt video fails before contacting ML', async () => {
   const calls = mlCalls;
   const result = await api.post('/api/v1/analyze').set('X-API-Key', API_KEY)
@@ -297,6 +338,50 @@ test('corrupt video fails before contacting ML', async () => {
   assert.equal(failed.status, 'failed');
   assert.equal(failed.error.code, 'INVALID_VIDEO');
   assert.equal(mlCalls, calls);
+});
+
+test('Origin and Referer never bypass the key guard on either jury route', async () => {
+  for (const [method, path] of [['post', '/api/v1/analyze'], ['get', '/api/v1/jobs/missing']]) {
+    for (const key of [undefined, WRONG_KEY]) {
+      const req = api[method](path).set('Origin', origin).set('Referer', `${origin}/`);
+      if (key) req.set('X-API-Key', key);
+      const denied = await req.expect(401);
+      assert.equal(denied.text.includes(API_KEY), false);
+    }
+  }
+});
+
+test('jury jobs cannot be read through site, including with jury credentials', async () => {
+  const accepted = await upload().expect(202);
+  const path = `/api/site/jobs/${accepted.body.job_id}`;
+  for (const key of [undefined, WRONG_KEY, API_KEY]) {
+    const req = api.get(path).set('Origin', origin).set('Referer', `${origin}/`);
+    if (key) req.set('X-API-Key', key);
+    await req.expect(404);
+  }
+  assert.equal(app.get(Store).get(accepted.body.job_id).owner, 'api');
+  assert.equal((await poll(accepted.body.job_id)).status, 'done');
+  await api.get(path).expect(404);
+});
+
+test('site returns 202 while ML is pending; ML error becomes failed without a success verdict', async () => {
+  releaseMl = undefined;
+  mlMode = 'hold';
+  try {
+    const accepted = await api.post('/api/site/analyze')
+      .attach('file', video, { filename: 'synthetic.mov', contentType: 'video/quicktime' }).expect(202);
+    assert.deepEqual(Object.keys(accepted.body), ['job_id']);
+    const pending = await api.get(`/api/site/jobs/${accepted.body.job_id}`).expect(200);
+    assert.equal(pending.body.status, 'processing');
+    for (let i = 0; !releaseMl && i < 200; i++) await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(typeof releaseMl, 'function');
+    mlMode = 'error';
+    releaseMl();
+    const failed = await poll(accepted.body.job_id, 'site');
+    assert.deepEqual(failed, { job_id: accepted.body.job_id, status: 'failed',
+      error: { code: 'ML_UNAVAILABLE', message: 'Video analysis failed' } });
+    assert.equal(JSON.stringify(failed).includes(API_KEY), false);
+  } finally { releaseMl?.(); releaseMl = undefined; mlMode = 'success'; }
 });
 
 test('queued deadline expires without inference; API remains responsive', async () => {
