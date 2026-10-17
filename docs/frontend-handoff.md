@@ -1,10 +1,16 @@
 # Подключение frontend к серверным маршрутам сайта
 
-Frontend — React/Vite на Vercel; backend — постоянный NestJS-процесс в Docker/Compose.
+Frontend — React/Vite. Backend — NestJS с отдельными точками входа для Node/Docker и HTTP Function.
 
 По [документации Vercel](https://vercel.com/docs/functions/limitations), проверенной 17.10.2026, тело запроса/ответа Function ограничено 4,5 МБ. MOV около 29 МБ получит 413 FUNCTION_PAYLOAD_TOO_LARGE. Увеличение лимита парсера этого не исправляет.
 
-Frontend остаётся на Vercel и обращается напрямую к HTTPS-origin существующего backend, без Vercel Function/rewrite на пути загрузки.
+Для загрузки видео около 29 МБ frontend должен обращаться к постоянному backend без Vercel Function на пути загрузки.
+
+При Root Directory `backend` Vercel загружает `src/app.ts`. В нём теперь есть `export default handler(req, res)`: он лениво создаёт NestJS через `createApp()`, вызывает `app.init()` и передаёт запрос Express-адаптеру. Параллельные запросы разделяют одну инициализацию. Ошибка инициализации возвращает безопасный 503 без env и секретов. Отдельный запуск через `src/main.ts` / `node dist/main.js` сохранён.
+
+Это исправляет отсутствующий default export, но не адаптирует хранилище и worker под serverless: нужны доступный для записи DATA_DIR, FFmpeg/FFprobe и действующая конфигурация ML; локальный SQLite и фоновый worker не гарантируют сохранность заданий между экземплярами Function. `/tmp` является временным хранилищем, а не постоянным томом. Ограничение тела запроса 4,5 МБ сохраняется. Исправление экспорта проверено локально, деплой на Vercel не проверен.
+
+Для backend Root Directory остаётся `backend`, build — `npm run build`; frontend публикуется отдельным проектом. `JURY_API_KEY` хранится только в серверном env.
 
 ## Маршруты и общий сервис
 
@@ -26,7 +32,7 @@ Backend:
 - UPLOAD_TIMEOUT_MS=120000 — таймаут загрузки в Compose.
 - Остальные настройки ML, DATA_DIR и FFmpeg сохранить.
 
-Vercel: Root Directory frontend, build npm run build, output dist. VITE_API_BASE_URL=https://api.example.org (origin backend), VITE_USE_MOCKS=false. После изменения VITE-переменных пересобрать frontend. Конечные /api, /api/site и /api/v1 в базовом URL нормализуются, поэтому /api не дублируется. Локально использовать http://localhost:3000; для UI, раздаваемого самим NestJS, оставить VITE_API_BASE_URL пустым.
+Frontend на Vercel: Root Directory frontend, build npm run build, output dist. VITE_API_BASE_URL=https://api.example.org (origin backend), VITE_USE_MOCKS=false. После изменения VITE-переменных пересобрать frontend. Конечные /api, /api/site и /api/v1 в базовом URL нормализуются, поэтому /api не дублируется. Локально использовать http://localhost:3000; для UI, раздаваемого самим NestJS, оставить VITE_API_BASE_URL пустым.
 
 Существующий HTTPS ingress backend должен пропускать /api/site/* и /api/v1/* и принимать multipart указанного размера. Например, для Nginx: client_max_body_size 101m (100 MiB плюс multipart), proxy_request_buffering off, proxy_read_timeout 125s, proxy_send_timeout 125s, client_body_timeout 125s. Не логировать ключи и тела запросов. Конфигурация реального ingress в репозитории отсутствует.
 

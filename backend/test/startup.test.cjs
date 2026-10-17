@@ -12,6 +12,53 @@ const base = {
   ML_STUB_ENABLED: 'true', STATIC_DIR: '',
 };
 
+test('Vercel default export is an HTTP handler: initializes once, serves routes and preserves auth', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'godo-vercel-handler-'));
+  try {
+    const script = `
+      const assert = require('node:assert/strict');
+      const { createServer } = require('node:http');
+      const handler = require('./dist/app').default;
+      assert.equal(typeof handler, 'function');
+      const server = createServer((req, res) => handler(req, res));
+      server.listen(0, '127.0.0.1', async () => {
+        try {
+          const url = 'http://127.0.0.1:' + server.address().port;
+          const key = process.env.JURY_API_KEY;
+          delete process.env.JURY_API_KEY;
+          const failed = await fetch(url + '/health/live');
+          assert.equal(failed.status, 503);
+          assert.deepEqual(await failed.json(), { message: 'Backend initialization failed' });
+          process.env.JURY_API_KEY = key;
+          const cold = await Promise.all(Array.from({ length: 5 }, () => fetch(url + '/health/live')));
+          for (const response of cold) assert.equal(response.status, 200);
+          for (const [method, path] of [['POST', '/api/v1/analyze'], ['GET', '/api/v1/jobs/missing']]) {
+            for (const supplied of [undefined, 'wrong-key']) {
+              const r = await fetch(url + path, { method, headers: supplied ? { 'X-API-Key': supplied } : {} });
+              assert.equal(r.status, 401);
+            }
+            const authorized = await fetch(url + path, { method, headers: { 'X-API-Key': key } });
+            assert.equal(authorized.status, method === 'POST' ? 400 : 404);
+            assert.equal((await authorized.text()).includes(key), false);
+          }
+          assert.equal((await fetch(url + '/api/site/analyze', { method: 'POST' })).status, 400);
+          const missing = await fetch(url + '/api/site/jobs/missing');
+          assert.equal(missing.status, 404);
+          assert.equal((await missing.json()).message, 'Job not found');
+          server.close();
+          server.closeAllConnections();
+        } catch { process.exit(1); }
+      });
+    `;
+    const result = spawnSync(process.execPath, ['-e', script], {
+      env: { ...process.env, ...base, DATA_DIR: dir }, encoding: 'utf8', timeout: 15000, windowsHide: true,
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, 'Default handler integration check failed');
+    assert.equal((result.stdout + result.stderr).includes(base.JURY_API_KEY), false);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 test('configuration errors identify the setting without exposing its value', () => {
   const previous = { ...process.env };
   try {

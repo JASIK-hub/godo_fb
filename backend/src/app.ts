@@ -45,7 +45,6 @@ export async function createApp() {
     const root = config.staticDir;
     app.useStaticAssets(join(root, 'assets'), { prefix: '/assets/', index: false, dotfiles: 'deny' });
     app.use((req: Request, res: Response, next: NextFunction) => {
-      // SPA fallback must never consume API/health requests or missing asset URLs.
       if (!['GET', 'HEAD'].includes(req.method) || /^\/(api|health|assets)(\/|$)/i.test(req.path) ||
           extname(req.path) || req.path.split('/').some(segment => segment.startsWith('.')) || !req.accepts('html')) return next();
       res.sendFile(join(root, 'index.html'));
@@ -59,4 +58,35 @@ export async function createApp() {
   });
   app.enableShutdownHooks();
   return { app, config };
+}
+
+let serverlessApp: Promise<NestExpressApplication> | undefined;
+
+async function initializeServerlessApp(): Promise<NestExpressApplication> {
+  const { app } = await createApp();
+  try {
+    await app.init();
+    return app;
+  } catch (error) {
+    await app.close();
+    throw error;
+  }
+}
+
+export default async function handler(req: Request, res: Response): Promise<void> {
+  let app: NestExpressApplication;
+  try {
+    serverlessApp ??= initializeServerlessApp().catch(error => {
+      serverlessApp = undefined;
+      throw error;
+    });
+    app = await serverlessApp;
+  } catch {
+    res.statusCode = 503;
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(JSON.stringify({ message: 'Backend initialization failed' }));
+    return;
+  }
+  app.getHttpAdapter().getInstance()(req, res);
 }
