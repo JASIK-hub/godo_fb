@@ -105,7 +105,7 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Job' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { description: Job missing, expired, or owned by another session }
+        '404': { description: 'Job missing, expired, or owned by another session' }
 components:
   securitySchemes:
     ApiKey: { type: apiKey, in: header, name: X-API-Key }
@@ -150,8 +150,13 @@ components:
               - $ref: '#/components/schemas/ProcessingJob'
               - $ref: '#/components/schemas/DoneJob'
               - $ref: '#/components/schemas/FailedJob'
-            discriminator: { propertyName: status }
-    BadRequest: { description: Missing, empty, or invalid multipart file }
+            discriminator:
+              propertyName: status
+              mapping:
+                processing: '#/components/schemas/ProcessingJob'
+                done: '#/components/schemas/DoneJob'
+                failed: '#/components/schemas/FailedJob'
+    BadRequest: { description: 'Missing, empty, or invalid multipart file' }
     Unauthorized: { description: Missing or invalid credentials }
   schemas:
     ProcessingJob:
