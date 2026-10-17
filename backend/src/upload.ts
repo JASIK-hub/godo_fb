@@ -5,8 +5,9 @@ import { Observable } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 import { Jobs } from './jobs';
 import type { AuthRequest } from './auth';
+import { Config } from './config';
 
-export type UploadRequest = AuthRequest & { submitted?: boolean };
+export type UploadRequest = AuthRequest & { submitted?: boolean; started?: number };
 export function uploadOptions(directory: string, limit: number) {
   return {
     storage: diskStorage({ destination: directory, filename: (_req, _file, cb) => cb(null, randomUUID()) }),
@@ -20,11 +21,16 @@ export function uploadOptions(directory: string, limit: number) {
 
 @Injectable()
 export class CapacityInterceptor implements NestInterceptor {
-  constructor(private readonly jobs: Jobs) {}
+  constructor(private readonly jobs: Jobs, private readonly config: Config) {}
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const req = context.switchToHttp().getRequest<UploadRequest>();
     if (!req.is('multipart/form-data')) throw new BadRequestException('Expected multipart/form-data');
     this.jobs.reserve();
-    return next.handle().pipe(finalize(() => { if (!req.submitted) this.jobs.releaseUpload(); }));
+    req.started = Date.now();
+    const timer = setTimeout(() => req.destroy(), this.config.uploadTimeout).unref();
+    return next.handle().pipe(finalize(() => {
+      clearTimeout(timer);
+      if (!req.submitted) this.jobs.releaseUpload();
+    }));
   }
 }

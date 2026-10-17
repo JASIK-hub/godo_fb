@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { openAsBlob } from 'node:fs';
 import { Config } from './config';
+import { Rules } from './rules';
 
 export interface Violation { code: string; message: string; timestamp_seconds: number }
 export interface Analysis { verdict: 'pass' | 'fail'; violations: Violation[]; source: 'ml' | 'stub' }
@@ -10,9 +11,9 @@ export class MlError extends Error {
 
 @Injectable()
 export class MlClient {
-  constructor(private readonly config: Config) {}
+  constructor(private readonly config: Config, private readonly rules: Rules) {}
 
-  async analyze(path: string, mime: string): Promise<Analysis> {
+  async analyze(path: string, mime: string, duration: number, jobId: string, deadline: number, signal: AbortSignal): Promise<Analysis> {
     if (this.config.stub) {
       await new Promise(resolve => setTimeout(resolve, 100));
       return { verdict: 'fail', violations: [{ code: 'DEMO_ONLY', message: 'Synthetic demo violation; no ML analysis performed', timestamp_seconds: 0 }], source: 'stub' };
@@ -22,8 +23,9 @@ export class MlClient {
       form.append('file', await openAsBlob(path, { type: mime }), 'video');
       const response = await fetch(this.config.mlUrl!, {
         method: 'POST', body: form, redirect: 'error',
-        headers: this.config.mlKey ? { 'X-API-Key': this.config.mlKey } : {},
-        signal: AbortSignal.timeout(this.config.timeout),
+        headers: { ...(this.config.mlKey ? { 'X-API-Key': this.config.mlKey } : {}),
+          'X-Job-Id': jobId, 'X-Deadline-At': new Date(deadline).toISOString() },
+        signal: AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, Math.min(this.config.timeout, deadline - Date.now() - this.config.deadlineMargin)))]),
       });
       if (!response.ok) { await response.body?.cancel(); throw new MlError('ML_UNAVAILABLE'); }
       // Bound ML response memory even when Content-Length is missing or incorrect.
@@ -41,11 +43,15 @@ export class MlClient {
       let data: any;
       try { data = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
       catch { throw new MlError('ML_INVALID_RESPONSE'); }
+      // Internal ML spelling only; public verdict remains pass/fail.
+      if (data?.verdict === 'no_violation') data.verdict = 'pass';
       if (!data || !['pass', 'fail'].includes(data.verdict) || !Array.isArray(data.violations) ||
           data.violations.length > 1000 || data.violations.some((v: any) =>
             !v || typeof v.code !== 'string' || !v.code.length || v.code.length > 128 ||
             typeof v.message !== 'string' || !v.message.length || v.message.length > 4096 ||
-            typeof v.timestamp_seconds !== 'number' || !Number.isFinite(v.timestamp_seconds) || v.timestamp_seconds < 0) ||
+            !this.rules.has(v.code) || (v.rule_id !== undefined && v.rule_id !== v.code) ||
+            (v.frames !== undefined && (!Array.isArray(v.frames) || v.frames.length !== 0)) ||
+            typeof v.timestamp_seconds !== 'number' || !Number.isFinite(v.timestamp_seconds) || v.timestamp_seconds < 0 || v.timestamp_seconds > duration) ||
           (data.verdict === 'pass' && data.violations.length !== 0) ||
           (data.verdict === 'fail' && data.violations.length === 0)) throw new MlError('ML_INVALID_RESPONSE');
       return { verdict: data.verdict, violations: data.violations.map((v: Violation) => ({ code: v.code, message: v.message, timestamp_seconds: v.timestamp_seconds })), source: 'ml' };

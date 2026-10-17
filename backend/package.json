@@ -2,7 +2,9 @@
   "name": "video-analysis-backend",
   "version": "1.0.0",
   "private": true,
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=24.14 <25"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node --env-file-if-exists=.env dist/main.js",
@@ -10,19 +12,19 @@
     "test": "npm run build && node --test test/*.test.cjs"
   },
   "dependencies": {
-    "@nestjs/common": "^11.0.0",
-    "@nestjs/core": "^11.0.0",
-    "@nestjs/platform-express": "^11.0.0",
-    "multer": "^2.0.2",
-    "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "@nestjs/common": "11.2.7",
+    "@nestjs/core": "11.2.7",
+    "@nestjs/platform-express": "11.2.7",
+    "multer": "2.4.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
   },
   "devDependencies": {
-    "@types/express": "^5.0.0",
-    "@types/multer": "^2.0.0",
-    "@types/node": "^24.0.0",
-    "@apidevtools/swagger-parser": "^12.0.0",
-    "supertest": "^7.1.0",
-    "typescript": "^5.9.0"
+    "@types/express": "5.0.6",
+    "@types/multer": "2.3.0",
+    "@types/node": "24.19.2",
+    "@apidevtools/swagger-parser": "12.1.0",
+    "supertest": "7.3.1",
+    "typescript": "5.9.3"
   }
 }

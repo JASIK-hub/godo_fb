@@ -12,7 +12,9 @@ async function submit(jobs: Jobs, file: Express.Multer.File | undefined, req: Up
     if (file) await unlink(file.path);
     throw new BadRequestException('A nonempty file is required');
   }
-  const result = jobs.submit(file, req.owner);
+  let result;
+  try { result = jobs.submit(file, req.owner, req.started!); }
+  catch (error) { await unlink(file.path).catch(() => {}); throw error; }
   req.submitted = true;
   return result;
 }
