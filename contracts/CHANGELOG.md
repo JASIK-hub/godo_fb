@@ -1,5 +1,13 @@
 # API changelog
 
+## 1.1.0 — 2026-10-17
+
+- Server credential configuration now requires `JURY_API_KEY` (no legacy `API_KEY` fallback); missing/empty configuration prevents startup. HTTP `X-API-Key`, public JSON and ML contract are unchanged. OpenAPI documents the server variable.
+- Existing paths, statuses and result fields retained. Public `pass` with empty `violations` means no violations; internal ML `no_violation` is mapped to `pass` only after validation.
+- Added failure codes `INVALID_VIDEO`, `DEADLINE_EXCEEDED`, `PROCESS_INTERRUPTED` to distinguish decoding, total deadline and restart failures. Consumers should display `error.message` and tolerate additional error codes.
+- Jobs and sessions now persist locally. Incomplete jobs fail on restart without re-running ML. A 300-second maximum deadline includes queue wait and upload after backend admission.
+- `violations[].code` identifies a rule in the local catalog; timestamps must fit the decoded duration. No frame/evidence fields have been added: their format requires a separate agreement with ML and frontend.
+
 ## 1.0.0 — 2026-10-17
 
 - Initial contract: `POST /api/v1/analyze` (multipart `file`, HTTP 202, `job_id`) and `GET /api/v1/jobs/{job_id}`, both requiring `X-API-Key`.

@@ -1,10 +1,13 @@
 openapi: 3.0.3
 info:
   title: Video Analysis API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     Upload completes before 202; inference runs in the background. Poll until done or failed.
-    Jobs and UI sessions are process-local, lost on restart, and expire after 1 hour by default.
+    Jobs and UI sessions persist in local SQLite and expire after 1 hour by default.
+    Interrupted jobs become failed after restart and are never automatically replayed.
+    Total job deadline is at most 300 seconds, including upload and queue wait.
+    Video decoding and duration checks run in the worker; invalid video produces failed.
     Deploy one backend instance. Queue saturation returns 503. Files are limited to 100 MiB
     by default; supported declared MIME types are video/mp4, video/webm, video/quicktime.
     Public API credentials must never be shipped to a browser. UI uses separate cookie routes.
@@ -108,7 +111,11 @@ paths:
         '404': { description: 'Job missing, expired, or owned by another session' }
 components:
   securitySchemes:
-    ApiKey: { type: apiKey, in: header, name: X-API-Key }
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Server-side JURY_API_KEY. Required on both public machine endpoints; never embed in frontend assets.
     UiSession: { type: apiKey, in: cookie, name: ui_session }
   parameters:
     Origin:
@@ -189,12 +196,14 @@ components:
           type: object
           required: [code, message]
           properties:
-            code: { type: string, enum: [ML_UNAVAILABLE, ML_INVALID_RESPONSE] }
+            code: { type: string, enum: [ML_UNAVAILABLE, ML_INVALID_RESPONSE, INVALID_VIDEO, DEADLINE_EXCEEDED, PROCESS_INTERRUPTED] }
             message: { type: string }
     Violation:
       type: object
       required: [code, message, timestamp_seconds]
       properties:
-        code: { type: string }
+        code:
+          type: string
+          description: rule_id from the deployed local regulatory catalog.
         message: { type: string }
         timestamp_seconds: { type: number, minimum: 0 }
