@@ -1,0 +1,90 @@
+name: godo
+services:
+  ui:
+    image: godo-ui:local
+    build:
+      context: .
+      dockerfile: deploy/ui.Dockerfile
+    ports: ["${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:80"]
+    networks: [ingress, processing]
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+  backend:
+    image: godo-backend:local
+    build: ./backend
+    init: true
+    environment:
+      NODE_ENV: production
+      JURY_API_KEY: ${JURY_API_KEY:?Set JURY_API_KEY}
+      UI_ACCESS_CODE: ${UI_ACCESS_CODE:?Set UI_ACCESS_CODE}
+      UI_ORIGIN: ${UI_ORIGIN:?Set public HTTPS origin}
+      ML_STUB_ENABLED: "false"
+      ML_SERVICE_URL: ${ML_SERVICE_URL:-http://ml:8000/analyze}
+      ML_HEALTH_URL: ${ML_HEALTH_URL:-http://ml:8000/health/ready}
+      ML_ALLOWED_HOSTS: ml
+      ML_API_KEY: ${ML_API_KEY:-}
+      DATA_DIR: /data
+      RULES_PATH: /rules/rules.json
+      ML_TIMEOUT_MS: ${ML_TIMEOUT_MS:-180000}
+      MEDIA_TIMEOUT_MS: ${MEDIA_TIMEOUT_MS:-30000}
+      JOB_DEADLINE_MS: "300000"
+      DEADLINE_MARGIN_MS: "5000"
+      MAX_PENDING_JOBS: ${MAX_PENDING_JOBS:-1}
+      ML_CONCURRENCY: ${ML_CONCURRENCY:-1}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-104857600}
+      MAX_VIDEO_DURATION_SECONDS: ${MAX_VIDEO_DURATION_SECONDS:-3600}
+      VIDEO_RETENTION_MS: ${VIDEO_RETENTION_MS:-3600000}
+      JOB_TTL_MS: ${JOB_TTL_MS:-3600000}
+      SESSION_TTL_MS: ${SESSION_TTL_MS:-3600000}
+    volumes:
+      - backend-data:/data
+      - type: bind
+        source: ${RULES_FILE:?Set local RULES_FILE}
+        target: /rules/rules.json
+        read_only: true
+        bind: { create_host_path: false }
+    networks: [processing]
+    read_only: true
+    tmpfs: ["/tmp:size=64m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 20s
+    restart: unless-stopped
+  ml:
+    # Supplied by the ML repository. No invented Dockerfile, command or GPU configuration.
+    image: ${ML_IMAGE:?Set immutable local ML image tag or digest}
+    pull_policy: never
+    init: true
+    environment:
+      MODEL_WEIGHTS_PATH: /models
+      RULES_PATH: /rules/rules.json
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      DO_NOT_TRACK: "1"
+      ML_API_KEY: ${ML_API_KEY:-}
+    volumes:
+      - type: bind
+        source: ${MODEL_WEIGHTS_DIR:?Set local weights directory}
+        target: /models
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ${RULES_FILE:?Set local RULES_FILE}
+        target: /rules/rules.json
+        read_only: true
+        bind: { create_host_path: false }
+    networks: [processing]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 30s
+    restart: unless-stopped
+networks:
+  ingress: {}
+  processing:
+    name: godo-processing
+    internal: true
+volumes:
+  backend-data:
