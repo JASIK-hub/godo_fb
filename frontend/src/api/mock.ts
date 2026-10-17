@@ -56,6 +56,17 @@ function sampleEvents(): DetectedEvent[] {
         clause: 'п. 4.12',
       },
     },
+    {
+      type: 'danger_zone',
+      timecode: '00:02:37–00:02:44',
+      description:
+        'Нахождение в опасной зоне вблизи работающей грузоподъёмной техники (мок: пример события).',
+      frames: [placeholderFrame('кадр 1 · 00:02:38'), placeholderFrame('кадр 2 · 00:02:41')],
+      source: {
+        document: 'СНиП РК 1.03.05-2011',
+        clause: 'п. 5.3',
+      },
+    },
   ];
 }
 
