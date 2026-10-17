@@ -80,6 +80,25 @@ async function poll(id) {
   throw new Error('Job did not finish');
 }
 
+test('CORS permits API key preflight on both routes and preserves authentication', async () => {
+  for (const [method, path] of [['POST', '/api/v1/analyze'], ['GET', '/api/v1/jobs/missing']]) {
+    const preflight = await api.options(path).set('Origin', origin)
+      .set('Access-Control-Request-Method', method)
+      .set('Access-Control-Request-Headers', 'content-type,x-api-key').expect(204);
+    assert.equal(preflight.headers['access-control-allow-origin'], origin);
+    assert.match(preflight.headers['access-control-allow-headers'].toLowerCase(), /x-api-key/);
+    assert.ok(preflight.headers['access-control-allow-methods'].split(',').includes(method));
+    const denied = await api[method.toLowerCase()](path).set('Origin', origin).expect(401);
+    assert.equal(denied.headers['access-control-allow-origin'], origin);
+    const other = await api.options(path).set('Origin', 'https://untrusted.example')
+      .set('Access-Control-Request-Method', method).expect(204);
+    assert.notEqual(other.headers['access-control-allow-origin'], 'https://untrusted.example');
+    assert.notEqual(other.headers['access-control-allow-origin'], '*');
+  }
+  const authorized = await api.get('/api/v1/jobs/missing').set('Origin', origin).set('X-API-Key', API_KEY).expect(404);
+  assert.equal(authorized.headers['access-control-allow-origin'], origin);
+});
+
 test('OpenAPI contract is valid', async () => {
   const spec = await SwaggerParser.validate('../contracts/public-api.yaml');
   assert.deepEqual(Object.keys(spec.paths).sort(), ['/api/v1/analyze', '/api/v1/jobs/{job_id}']);

@@ -51,7 +51,12 @@ export async function createApp() {
       res.sendFile(join(root, 'index.html'));
     });
   }
-  app.enableCors({ origin: config.uiOrigin, credentials: true, methods: ['GET', 'POST', 'DELETE'], allowedHeaders: ['Content-Type'] });
+  app.enableCors({
+    origin: config.uiOrigin,
+    credentials: true,
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'X-API-Key'],
+  });
   app.enableShutdownHooks();
   return { app, config };
 }
