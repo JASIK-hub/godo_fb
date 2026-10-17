@@ -1,43 +1,62 @@
-# Video analysis backend
+# Backend
 
-NestJS backend, Node.js 22+ (tested with Node 24). API source of truth: [OpenAPI](../contracts/public-api.yaml), [changes](../contracts/CHANGELOG.md).
+NestJS API + worker внутри одного процесса, локальный SQLite WAL и дисковые видео. Node 24.14+ ветки 24, FFmpeg/FFprobe обязательны.
 
-## Local startup
+Основные инструкции: [корневой README](../README.md), [архитектура и результаты аудита](../docs/architecture.md), [требования к ML](../docs/ml-integration.md), [контракт](../contracts/public-api.yaml).
 
-From `backend/` run `npm ci`, copy `.env.example` to `.env`, and set independent random `API_KEY` and `UI_ACCESS_CODE` values (at least 32 characters). Set `UI_ORIGIN` to the exact frontend origin with no trailing slash. For a demo explicitly set `NODE_ENV=development` and `ML_STUB_ENABLED=true`. Run `npm run build` and `npm start`. PowerShell with restricted script execution can use `npm.cmd`.
+## Запуск
 
-`npm test` compiles TypeScript, validates OpenAPI and runs HTTP integration tests against a local fake ML server. Test credentials are synthetic.
+Из backend: `npm ci`, скопировать `.env.example` в `.env`, задать разные случайные `JURY_API_KEY` и `UI_ACCESS_CODE`, точный `UI_ORIGIN`, локальный `RULES_PATH` и внутренние `ML_SERVICE_URL`/`ML_HEALTH_URL`. Затем `npm run build` и `npm start`.
 
-## Public API
+Для разработки разрешены только явно заданные `NODE_ENV=development` и `ML_STUB_ENABLED=true`. Можно использовать синтетический `config/rules.example.json`; production откажется запускаться с demo-справочником или заглушкой. Никаких fallback на заглушку при сбоях ML.
 
-- `POST /api/v1/analyze`: `X-API-Key`, multipart `file`; returns HTTP 202 with `{ "job_id": "uuid" }` after upload, without waiting for ML.
-- `GET /api/v1/jobs/{job_id}`: `X-API-Key`; returns `processing`, `done` with `verdict`, `violations`, `source`, or `failed` with a safe `error`.
+## API
 
-MIME allowlist: MP4, WebM, QuickTime. This validates declared MIME, not media integrity; the ML service must validate/decode untrusted video in isolation. Upload limit defaults to 100 MiB. Empty/malformed uploads fail with 400, excessive size with 413, unsupported MIME with 415. Authorization runs before upload processing. A bounded reservation covers in-progress uploads and queued/running analyses. Exhausted capacity returns 503; retry with backoff.
+Ключ жюри хранится только на сервере в `JURY_API_KEY`. Сгенерируйте его локально:
 
-Uploads use random disk filenames, never user filenames. Files are removed after success/failure and graceful shutdown. The OS temp directory contains per-process `godo-upload-*` directories; after a hard crash, clean abandoned directories through deployment temp-file retention. Configure ingress upload timeouts and request-rate limits.
-
-## UI integration for Claude
-
-1. Ask the user for the separately provisioned UI access code. `POST /api/v1/ui/session` with JSON `{ "access_code": "..." }` and `credentials: 'include'` creates a session. Do not persist the access code in browser storage or embed it in the bundle. Backend never returns the jury API key.
-2. Upload with `POST /api/v1/ui/analyze`, FormData field `file`, `credentials: 'include'`. Let the browser set the multipart Content-Type and boundary.
-3. Poll `GET /api/v1/ui/jobs/{job_id}` with `credentials: 'include'`, e.g. every second. Stop on `done`/`failed`. Show `verdict` (`pass`/`fail`), violation `code`, `message`, `timestamp_seconds`. Render ML strings as text. Visibly label `source: 'stub'` as demonstration data.
-4. Logout: `DELETE /api/v1/ui/session`, `credentials: 'include'`. Handle 401 by requesting login; 404 means an unknown/expired job or a different session; 503 means capacity exhaustion.
-
-All UI mutations require an Origin matching `UI_ORIGIN` (browsers set this automatically). If using a development reverse proxy, configure the browser-facing origin. Cookies are HttpOnly and SameSite=Strict, additionally Secure in production. Production frontend/backend must be same-site and HTTPS; same-origin reverse proxy is simplest. CORS permits only `UI_ORIGIN` with credentials. Session expiry is absolute, not sliding. Logging in again creates a new owner; its jobs are separate. Public API and UI jobs are also isolated. API-key requests belong to the single configured machine principal.
-
-## ML integration and production
-
-Set `ML_STUB_ENABLED=false` (default) and `ML_URL` to the full ML POST endpoint. Backend forwards multipart `file`, optionally with a separate `ML_API_KEY` in `X-API-Key`. No jury key or UI code is forwarded. ML must return JSON:
-
-```json
-{"verdict":"fail","violations":[{"code":"RULE_ID","message":"Description","timestamp_seconds":1.5}]}
+```sh
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-`pass` requires an empty violations array; `fail` requires at least one violation. Codes/messages are nonempty (max 128/4096 characters), timestamps are finite and nonnegative. Maximum 1000 violations and 1 MiB response. Backend sets `source: 'ml'` itself. Non-2xx/network/timeout errors produce `ML_UNAVAILABLE`; invalid payloads produce `ML_INVALID_RESPONSE`. There is no automatic stub fallback and no automatic retry of ML requests. Timeout covers the response body as well as headers. Redirects are rejected to avoid forwarding credentials elsewhere.
+Установите полученное значение в `JURY_API_KEY` в backend/.env или в окружении сервера (для Compose — в корневом .env). Не коммитьте .env и не используйте placeholder из .env.example в развёртывании. Переменная `API_KEY` больше не используется и не служит fallback. Без JURY_API_KEY, с пустым или пробельным значением процесс завершается с кодом 1 и сообщением `JURY_API_KEY must be set and non-empty`.
 
-For final deployment set `NODE_ENV=production`. Any environment other than exactly `development` or `test` is treated as production; a stub configuration prevents startup. Production requires HTTPS for UI_ORIGIN and ML_URL. Keep all credentials in backend environment/secret storage. `UI_ACCESS_CODE` must differ from `API_KEY`. Changing the UI code requires a restart, which also invalidates sessions.
+Примеры для Bash: переменная JURY_API_KEY уже установлена в окружении API-клиента; BASE_URL указывает на ваше развёртывание. Реальный секрет в примеры не подставляйте и не публикуйте команды с раскрытыми значениями.
 
-This first version uses an in-process worker queue and memory job/session stores. **Run one instance**: restarts lose state, and jobs are not durable. For durable processing or horizontal scaling, replace these stores with a shared database/Redis and durable workers before deployment. Successful and failed jobs expire one hour after completion by default; sessions expire one hour after login. Defaults: 10 pending jobs including uploads, 2 ML workers, 1000 stored jobs, 1000 sessions, 120-second ML timeout. Login has a global per-process limit of 20 attempts/minute; use an ingress limiter for per-client controls. Environment limits are in `.env.example`.
+```sh
+BASE_URL=https://review.example.org
+curl --fail-with-body -X POST "$BASE_URL/api/v1/analyze" \
+  -H "X-API-Key: $JURY_API_KEY" \
+  -F "file=@synthetic.mov;type=video/quicktime"
 
-Implementation references: [NestJS file uploads](https://docs.nestjs.com/techniques/file-upload), [NestJS authentication](https://docs.nestjs.com/security/authentication).
+# Используйте job_id из ответа 202:
+JOB_ID=replace_with_returned_job_id
+curl --fail-with-body "$BASE_URL/api/v1/jobs/$JOB_ID" \
+  -H "X-API-Key: $JURY_API_KEY"
+```
+
+Для PowerShell используйте `curl.exe` и `$env:JURY_API_KEY`. Заголовок нечувствителен к регистру; отсутствие, пустое значение или неверный ключ дают 401 до обработки multipart. Корректный ключ разрешает дальнейшую валидацию: например, отсутствующий файл даёт 400, неизвестный job_id — 404.
+
+В Swagger/OpenAPI схема `ApiKey` задана как `type: apiKey`, `in: header`, `name: X-API-Key` и защищает оба публичных маршрута. Источник схемы — contracts/public-api.yaml; отдельный Swagger UI в backend не установлен.
+
+Текущий frontend ещё вызывает машинные endpoint без ключа. Его необходимо перевести на существующие `/api/v1/ui/*` и вход с отдельным UI_ACCESS_CODE, как описано в docs/frontend-handoff.md. Не добавляйте JURY_API_KEY в VITE-переменные, код или assets. Обхода защиты нет; UI-маршруты требуют свою сессию.
+
+- `POST /api/v1/analyze`: X-API-Key, multipart file, 202 с job_id после записи файла и состояния. Декодирование/ML идут в worker.
+- `GET /api/v1/jobs/{job_id}`: X-API-Key; processing/done/failed. Готовый результат содержит verdict pass/fail, violations и source.
+- `POST /api/v1/ui/session`: отдельный access_code → HttpOnly cookie. `DELETE` отзывает сессию. UI отправляет credentials include и использует `/api/v1/ui/analyze`, `/api/v1/ui/jobs/{job_id}`. Машинный ключ в UI не передаётся.
+- `GET /health/live`, `GET /health/ready`: состояние процесса и зависимостей; тела не содержат секретов/пользовательских данных. Compose не публикует backend-порт.
+
+UI mutations требуют точного Origin. Production cookies требуют HTTPS и same-site UI/API. UI-сессии хранятся в SQLite, переживают рестарт и действуют до TTL/logout; смена access_code сама по себе старые сессии не отзывает.
+
+## Надёжность и данные
+
+DATA_DIR содержит jobs.sqlite и uploads. Запускать ровно один backend с этим каталогом. На старте незавершённые задания становятся failed/PROCESS_INTERRUPTED, не перезапускаются. Общий дедлайн не превышает 300 секунд, включая очередь и загрузку после резервирования. Перегрузка возвращает 503. Это предел до конечного статуса, не измеренная гарантия успешного анализа любой записи реальной моделью.
+
+FFprobe и FFmpeg валидируют длительность и декодируют весь видеопоток. MAX_UPLOAD_BYTES/MAX_VIDEO_DURATION_SECONDS задают эксплуатационные пределы. Оба бинарника можно задать через FFMPEG_PATH/FFPROBE_PATH. ML обязан сам безопасно декодировать недоверенные данные, учитывать X-Deadline-At и останавливать вычисления при отмене; закрытие HTTP со стороны backend не гарантирует остановку GPU.
+
+Файлы удаляются по VIDEO_RETENTION_MS с периодом CLEANUP_INTERVAL_MS; активные файлы исключены, orphan не удаляется раньше UPLOAD_TIMEOUT_MS+1000. Результаты удаляются по JOB_TTL_MS, сессии по SESSION_TTL_MS. Не удаляйте persistent volume, если данные нужны.
+
+ML получает только файл, отдельный ML_API_KEY (если настроен), UUID и дедлайн. Внешние редиректы запрещены. Ответ ограничен 1 MiB/1000 нарушениями; code должен существовать в локальном справочнике, timestamp_seconds — внутри длительности. Внутренний no_violation преобразуется в pass только с пустым violations. Непустые frames пока отклоняются: формата доказательств в публичном API нет.
+
+## Проверки
+
+`npm test` собирает TypeScript, валидирует OpenAPI, генерирует синтетические MOV через FFmpeg и проверяет HTTP-поток, сбои, лимиты, локальное сохранение/рестарт. Установите FFmpeg/FFprobe до тестов. Реальные пользовательские видео не используются. Docker/offline проверка описана в корневом README и не выполнена без ML-образа и работающего Docker daemon.
