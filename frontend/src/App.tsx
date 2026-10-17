@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { analyzeVideo, isMockMode } from './api';
+import { analyzeVideo, isMockMode, seedMockJob } from './api';
 import { AppFooter } from './components/AppFooter';
 import { AppHeader } from './components/AppHeader';
+import { MockDemoPanel } from './components/MockDemoPanel';
+import type { DemoTarget } from './components/MockDemoPanel';
 import { ProcessingScreen } from './components/ProcessingScreen';
 import { ResultScreen } from './components/ResultScreen';
 import { UploadScreen } from './components/UploadScreen';
@@ -41,6 +43,25 @@ export default function App() {
     setScreen('upload');
   };
 
+  /** Демо-переходы панели мока: засеять задачу в нужном состоянии и показать экран. */
+  const handleDemo = (target: DemoTarget) => {
+    if (target === 'upload') {
+      handleReset();
+      return;
+    }
+    if (target === 'processing') {
+      seedMockJob('demo-processing', 'processing');
+      setJobId('demo-processing');
+    } else if (target === 'result') {
+      seedMockJob('demo-result', 'done');
+      setJobId('demo-result');
+    } else {
+      seedMockJob('demo-failed', 'failed');
+      setJobId('demo-failed');
+    }
+    setScreen('processing');
+  };
+
   /** Экран результата показываем только при реально завершённой задаче. */
   const showResult = screen === 'processing' && phase === 'done' && job?.result;
 
@@ -66,6 +87,7 @@ export default function App() {
           Режим мока: backend недоступен, данные искусственные
         </div>
       )}
+      {isMockMode && <MockDemoPanel onShow={handleDemo} />}
     </div>
   );
 }

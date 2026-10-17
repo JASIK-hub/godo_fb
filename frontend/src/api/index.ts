@@ -31,3 +31,11 @@ export function analyzeVideo(file: File): Promise<AnalyzeResponse> {
 export function getJob(jobId: string): Promise<Job> {
   return config.useMocks ? mock.mockGetJob(jobId) : client.getJob(jobId);
 }
+
+/**
+ * Демо-засев mock-задачи в нужном состоянии (только ветка mock).
+ * В реальном режиме не используется.
+ */
+export function seedMockJob(jobId: string, status: 'processing' | 'done' | 'failed'): void {
+  mock.seedMockJob(jobId, status);
+}

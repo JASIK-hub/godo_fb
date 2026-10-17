@@ -115,3 +115,21 @@ export async function mockGetJob(jobId: string): Promise<Job> {
   }
   return mockJobAt(jobId, job, Date.now());
 }
+
+/** Состояния для быстрого показа экранов в режиме мока. */
+export type MockSeedStatus = 'processing' | 'done' | 'failed';
+
+/**
+ * Засеять mock-задачу в заданном состоянии — для просмотра дизайна
+ * страниц без реального запроса к backend (только ветка mock).
+ */
+export function seedMockJob(jobId: string, status: MockSeedStatus): void {
+  if (status === 'processing') {
+    // Свежая задача: прогресс пойдёт с нуля в реальном времени.
+    jobs.set(jobId, { createdAt: Date.now(), fail: false });
+  } else if (status === 'failed') {
+    jobs.set(jobId, { createdAt: Date.now() - MOCK_PROCESSING_MS, fail: true });
+  } else {
+    jobs.set(jobId, { createdAt: Date.now() - MOCK_PROCESSING_MS, fail: false });
+  }
+}
