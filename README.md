@@ -13,7 +13,7 @@ npm ci
 cp .env.example .env
 ```
 
-Задайте случайный JURY_API_KEY. Укажите точный UI_ORIGIN для CORS и локальный RULES_PATH. Для разработки можно скопировать `config/rules.example.json` в `config/rules.json` и явно включить `NODE_ENV=development`, `ML_STUB_ENABLED=true`. Пример справочника и заглушка запрещены в production. Заглушка всё равно проходит реальное декодирование видео.
+Задайте случайный JURY_API_KEY и точный UI_ORIGIN для CORS. Справочник принадлежит ML-сервису; backend не требует RULES_PATH или локального файла правил. Для разработки без ML используйте `npm run dev:stub`. Заглушка запрещена в production и всё равно проходит реальное декодирование видео.
 
 Генерация ключа жюри:
 
@@ -44,7 +44,7 @@ npm test
 ## Контейнерный запуск
 
 1. На этапе подготовки с интернетом установите Docker Engine/Compose, соберите приложение: `docker compose build backend`. Один Dockerfile собирает frontend и backend; NestJS раздаёт готовый UI и API. Compose читает обязательные env-поля, поэтому сначала скопируйте `deploy/.env.example` в корневой `.env` и заполните их. Backend npm-зависимости закреплены точными версиями и lockfile, frontend собирается через существующий lockfile. FFmpeg устанавливается при build, не при обработке. Для ручной сборки используйте корень репозитория: `docker build -f backend/Dockerfile -t godo-backend:local .`.
-2. ML-разработчик должен предоставить готовый совместимый образ. Загрузите его заранее (`docker load` или предварительный pull), задайте ML_IMAGE с неизменяемым digest/локальным тегом, MODEL_WEIGHTS_DIR и RULES_FILE. Все файлы должны уже существовать. Не используйте синтетический пример справочника в production.
+2. ML-разработчик должен предоставить готовый совместимый образ. Загрузите его заранее (`docker load` или предварительный pull), задайте ML_IMAGE с неизменяемым digest/локальным тегом, MODEL_WEIGHTS_DIR и RULES_FILE. Все файлы должны уже существовать. RULES_FILE монтируется только в ML, backend не нуждается в справочнике.
 3. Сохраните итоговые образы через `docker save` и manifest digest/версий/контрольных сумм весов для повторного развёртывания без интернета. Версии base-image заданы тегами, apt использует репозиторий Debian: побитовая повторяемость нового build не заявляется. Для точного воспроизведения используйте сохранённые образы/digests.
 4. UI_ORIGIN должен быть публичным HTTPS-origin без завершающего `/`. Настройте HTTPS ingress оператора на `127.0.0.1:8080` (HTTP_BIND/HTTP_PORT). Это обслуживает UI и `/api/` на одном origin; машинные endpoint сохраняют проверку ключа. Внешний TLS ingress не реализуется фиктивно в этом репозитории.
 5. После staging запустите `docker compose config --quiet`, затем `docker compose up -d --no-build --pull never`. Backend хранит SQLite/видео в named volume backend-data. Не запускайте несколько backend-реплик на этом томе. ML слушает внутреннюю сеть, его GPU override должен быть предоставлен участником под реальное оборудование.

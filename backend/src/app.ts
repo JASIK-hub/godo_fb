@@ -6,7 +6,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { access, mkdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import type { Request, Response, NextFunction } from 'express';
-import { Config } from './config';
+import { Config, ConfigurationError } from './config';
 import { ApiKeyGuard } from './auth';
 import { PublicController } from './controllers';
 import { Jobs } from './jobs';
@@ -15,18 +15,21 @@ import { CapacityInterceptor, uploadOptions } from './upload';
 import { Store } from './store';
 import { Worker } from './worker';
 import { Media } from './media';
-import { Rules } from './rules';
 import { HealthController } from './health';
 
 export async function createApp() {
   const config = new Config();
-  if (config.staticDir) await access(join(config.staticDir, 'index.html'));
+  if (config.staticDir) {
+    try { await access(join(config.staticDir, 'index.html')); }
+    catch { throw new ConfigurationError('STATIC_DIR must contain a readable index.html; build the frontend or leave STATIC_DIR empty for API-only development'); }
+  }
   const directory = join(config.dataDir, 'uploads');
-  await mkdir(directory, { recursive: true });
+  try { await mkdir(directory, { recursive: true }); }
+  catch { throw new ConfigurationError('DATA_DIR must be writable so the backend can store uploads'); }
   @Module({
     imports: [MulterModule.register(uploadOptions(directory, config.maxUpload))],
     controllers: [PublicController, HealthController],
-    providers: [{ provide: Config, useValue: config }, Store, Worker, Media, Rules,
+    providers: [{ provide: Config, useValue: config }, Store, Worker, Media,
       Jobs, MlClient, ApiKeyGuard, CapacityInterceptor],
   })
   class AppModule {}

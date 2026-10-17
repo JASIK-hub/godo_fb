@@ -1,3 +1,8 @@
+## Regulatory catalog ownership clarification
+
+- Public API fields and endpoints unchanged. ML owns and validates rule identifiers; backend no longer loads a regulatory catalog or requires RULES_PATH.
+- Existing violations[].message preserves the normative source text supplied by ML. No document/clause fields or new source enum values added.
+
 # API changelog
 
 ## 1.2.0 — 2026-10-17

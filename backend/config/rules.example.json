@@ -1,8 +1,0 @@
-{
-  "demo": true,
-  "version": "synthetic-test-only",
-  "rules": [
-    { "rule_id": "TEST", "document": "Synthetic test catalog; not a regulation", "clause": "test-1" },
-    { "rule_id": "DEMO_ONLY", "document": "Synthetic demo catalog; not a regulation", "clause": "demo-1" }
-  ]
-}

@@ -20,7 +20,7 @@ RUN npm run build
 
 FROM build AS test
 COPY backend/test ./test
-COPY backend/config ./config
+COPY backend/scripts ./scripts
 COPY contracts /contracts
 CMD ["npm", "test"]
 

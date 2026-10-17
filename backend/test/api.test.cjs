@@ -25,7 +25,6 @@ function environment() {
     ML_STUB_ENABLED: 'false', ML_TIMEOUT_MS: '1000',
     MAX_PENDING_JOBS: '2', ML_CONCURRENCY: '1', JOB_TTL_MS: '3600000',
     MAX_UPLOAD_BYTES: '33554432', MEDIA_TIMEOUT_MS: '3000', JOB_DEADLINE_MS: '10000', DEADLINE_MARGIN_MS: '100',
-    RULES_PATH: resolve('config/rules.example.json'),
   });
 }
 
@@ -49,7 +48,7 @@ before(async () => {
     if (mlMode === 'json') { res.end('{not-json'); return; }
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify(mlMode === 'invalid' ? { verdict: 'pass', violations: 'wrong' } : mlMode === 'pass' ? { verdict: 'no_violation', violations: [] } : {
-      verdict: 'fail', violations: [{ code: mlMode === 'rule' ? 'UNKNOWN' : 'TEST', message: 'Test violation',
+      verdict: 'fail', violations: [{ code: mlMode === 'rule' ? 'UNKNOWN' : 'TEST', message: 'Synthetic safety standard, clause 7.2: Test violation', rule_id: mlMode === 'ruleMismatch' ? 'OTHER' : (mlMode === 'rule' ? 'UNKNOWN' : 'TEST'),
         timestamp_seconds: mlMode === 'timestamp' ? 100 : 0.5, ...(mlMode === 'frames' ? { frames: ['https://external.invalid/private.jpg'] } : {}) }],
     }));
   });
@@ -148,6 +147,18 @@ test('202 returns before ML finishes; video is forwarded and result is sanitized
   assert.ok(Date.parse(received.headers['x-deadline-at']) > Date.now());
 });
 
+test('ML owns rule identifiers and source text is preserved in API and storage', async () => {
+  mlMode = 'rule';
+  try {
+    const { body } = await upload().expect(202);
+    const done = await poll(body.job_id);
+    assert.equal(done.status, 'done');
+    assert.deepEqual(done.violations, [{ code: 'UNKNOWN', message: 'Synthetic safety standard, clause 7.2: Test violation', timestamp_seconds: 0.5 }]);
+    assert.deepEqual(app.get(Store).get(body.job_id).job, done);
+    assert.deepEqual(Object.keys(done).sort(), ['job_id', 'source', 'status', 'verdict', 'violations']);
+  } finally { mlMode = 'success'; }
+});
+
 test('rejects missing, empty, oversized, unsupported and extra uploads; capacity recovers', async () => {
   await api.post('/api/v1/analyze').set('X-API-Key', API_KEY).send({}).expect(400);
   await api.post('/api/v1/analyze').set('X-API-Key', API_KEY).attach('file', Buffer.alloc(0), { filename: 'empty.mp4', contentType: 'video/mp4' }).expect(400);
@@ -161,7 +172,7 @@ test('rejects missing, empty, oversized, unsupported and extra uploads; capacity
 
 test('ML errors, invalid responses and timeouts produce failed jobs without upstream details', async () => {
   for (const [mode, code] of [['error', 'ML_UNAVAILABLE'], ['invalid', 'ML_INVALID_RESPONSE'], ['json', 'ML_INVALID_RESPONSE'],
-    ['rule', 'ML_INVALID_RESPONSE'], ['timestamp', 'ML_INVALID_RESPONSE'], ['frames', 'ML_INVALID_RESPONSE'], ['timeout', 'ML_UNAVAILABLE']]) {
+    ['ruleMismatch', 'ML_INVALID_RESPONSE'], ['timestamp', 'ML_INVALID_RESPONSE'], ['frames', 'ML_INVALID_RESPONSE'], ['timeout', 'ML_UNAVAILABLE']]) {
     mlMode = mode;
     const { body } = await upload().expect(202);
     const failed = await poll(body.job_id);

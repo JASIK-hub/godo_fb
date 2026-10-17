@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { openAsBlob } from 'node:fs';
 import { Config } from './config';
-import { Rules } from './rules';
 
 export interface Violation { code: string; message: string; timestamp_seconds: number }
 export interface Analysis { verdict: 'pass' | 'fail'; violations: Violation[]; source: 'ml' | 'stub' }
@@ -11,7 +10,7 @@ export class MlError extends Error {
 
 @Injectable()
 export class MlClient {
-  constructor(private readonly config: Config, private readonly rules: Rules) {}
+  constructor(private readonly config: Config) {}
 
   async analyze(path: string, mime: string, duration: number, jobId: string, deadline: number, signal: AbortSignal): Promise<Analysis> {
     if (this.config.stub) {
@@ -49,7 +48,7 @@ export class MlClient {
           data.violations.length > 1000 || data.violations.some((v: any) =>
             !v || typeof v.code !== 'string' || !v.code.length || v.code.length > 128 ||
             typeof v.message !== 'string' || !v.message.length || v.message.length > 4096 ||
-            !this.rules.has(v.code) || (v.rule_id !== undefined && v.rule_id !== v.code) ||
+            (v.rule_id !== undefined && v.rule_id !== v.code) ||
             (v.frames !== undefined && (!Array.isArray(v.frames) || v.frames.length !== 0)) ||
             typeof v.timestamp_seconds !== 'number' || !Number.isFinite(v.timestamp_seconds) || v.timestamp_seconds < 0 || v.timestamp_seconds > duration) ||
           (data.verdict === 'pass' && data.violations.length !== 0) ||

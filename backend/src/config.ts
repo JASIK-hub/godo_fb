@@ -22,7 +22,6 @@ export class Config {
   readonly cleanupInterval = this.integer('CLEANUP_INTERVAL_MS', 60000, 3600000);
   readonly dataDir = resolve(process.env.DATA_DIR ?? './data');
   readonly staticDir = process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : undefined;
-  readonly rulesPath = resolve(process.env.RULES_PATH ?? './config/rules.json');
   readonly ffmpeg = process.env.FFMPEG_PATH ?? 'ffmpeg';
   readonly ffprobe = process.env.FFPROBE_PATH ?? 'ffprobe';
   readonly maxUpload = this.integer('MAX_UPLOAD_BYTES', 100 * 1024 * 1024, 1024 * 1024 * 1024);
@@ -33,16 +32,16 @@ export class Config {
 
   constructor() {
     if (process.env.ML_STUB_ENABLED && !['true', 'false'].includes(process.env.ML_STUB_ENABLED)) {
-      throw new Error('ML_STUB_ENABLED must be true or false');
+      throw new ConfigurationError('ML_STUB_ENABLED must be true or false');
     }
-    if (this.stub && this.production) throw new Error('ML stub is forbidden outside development/test');
+    if (this.stub && this.production) throw new ConfigurationError('ML stub is forbidden outside development/test');
     if (this.timeout + this.mediaTimeout + this.deadlineMargin >= this.deadline) {
-      throw new Error('ML and media timeouts must leave room before JOB_DEADLINE_MS');
+      throw new ConfigurationError('ML and media timeouts must leave room before JOB_DEADLINE_MS');
     }
     if (!this.stub) {
-      const url = new URL(this.mlUrl ?? '');
+      const url = this.url(this.mlUrl, 'ML_SERVICE_URL (or ML_URL)');
       this.localUrl(url);
-      if (this.mlHealthUrl) this.localUrl(new URL(this.mlHealthUrl));
+      if (this.mlHealthUrl) this.localUrl(this.url(this.mlHealthUrl, 'ML_HEALTH_URL'));
     }
   }
 
@@ -50,7 +49,7 @@ export class Config {
     const host = url.hostname;
     const allowed = (process.env.ML_ALLOWED_HOSTS ?? 'ml,localhost,127.0.0.1,[::1]').split(',');
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || !allowed.includes(host)) {
-      throw new Error('ML URL must use an explicitly allowed internal host');
+      throw new ConfigurationError('ML URL must use an explicitly allowed internal host; check ML_ALLOWED_HOSTS');
     }
     // The deployment network enforces egress denial, including DNS rebinding protection.
   }
@@ -62,15 +61,20 @@ export class Config {
   }
 
   private origin(): string {
-    const url = new URL(process.env.UI_ORIGIN ?? '');
+    const url = this.url(process.env.UI_ORIGIN, 'UI_ORIGIN');
     if (!['http:', 'https:'].includes(url.protocol) || url.origin !== process.env.UI_ORIGIN ||
-        (this.production && url.protocol !== 'https:')) throw new Error('Invalid UI_ORIGIN');
+        (this.production && url.protocol !== 'https:')) throw new ConfigurationError('UI_ORIGIN must be an exact http(s) origin without a trailing slash or path; production requires HTTPS');
     return url.origin;
+  }
+
+  private url(value: string | undefined, name: string): URL {
+    try { return new URL(value ?? ''); }
+    catch { throw new ConfigurationError(`${name} must be set to a valid URL`); }
   }
 
   private integer(name: string, fallback: number, max: number): number {
     const n = process.env[name] === undefined ? fallback : Number(process.env[name]);
-    if (!Number.isSafeInteger(n) || n < 1 || n > max) throw new Error(`Invalid ${name}`);
+    if (!Number.isSafeInteger(n) || n < 1 || n > max) throw new ConfigurationError(`${name} must be an integer between 1 and ${max}`);
     return n;
   }
 }

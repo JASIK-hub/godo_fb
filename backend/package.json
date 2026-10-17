@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node --env-file-if-exists=.env dist/main.js",
     "dev": "npm run build && npm start",
+    "dev:stub": "npm run build && node --env-file-if-exists=.env scripts/dev-stub.cjs",
     "test": "npm run build && node --test test/*.test.cjs"
   },
   "dependencies": {
