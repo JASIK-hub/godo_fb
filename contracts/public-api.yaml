@@ -1,16 +1,16 @@
 openapi: 3.0.3
 info:
   title: Video Analysis API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Upload completes before 202; inference runs in the background. Poll until done or failed.
-    Jobs and UI sessions persist in local SQLite and expire after 1 hour by default.
+    Jobs persist in local SQLite and expire after 1 hour by default.
     Interrupted jobs become failed after restart and are never automatically replayed.
     Total job deadline is at most 300 seconds, including upload and queue wait.
     Video decoding and duration checks run in the worker; invalid video produces failed.
     Deploy one backend instance. Queue saturation returns 503. Files are limited to 100 MiB
     by default; supported declared MIME types are video/mp4, video/webm, video/quicktime.
-    Public API credentials must never be shipped to a browser. UI uses separate cookie routes.
+    Public API credentials must never be embedded in frontend assets. Browser access requires a separately agreed integration.
 servers:
   - url: /
 security:
@@ -39,76 +39,6 @@ paths:
         '200': { $ref: '#/components/responses/Job' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { description: Job missing or expired }
-  /api/v1/ui/session:
-    post:
-      operationId: createUiSession
-      security: []
-      description: |
-        Exchange the separate UI access code for an HttpOnly, SameSite=Strict session cookie.
-        Origin must exactly equal server UI_ORIGIN. Use credentials include. The code is
-        entered by the user, never embedded in frontend assets. Secure cookies in production.
-        Login is limited to 20 attempts per minute per backend process.
-      parameters:
-        - $ref: '#/components/parameters/Origin'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [access_code]
-              properties:
-                access_code: { type: string, format: password }
-      responses:
-        '201':
-          description: Session created; session ID is only sent in Set-Cookie
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [expires_at]
-                properties:
-                  expires_at: { type: string, format: date-time }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { description: Origin not allowed }
-        '429': { description: Too many login attempts }
-        '503': { description: Session capacity exhausted }
-    delete:
-      operationId: deleteUiSession
-      security: [{ UiSession: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
-      responses:
-        '204': { description: Session revoked and cookie cleared }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { description: Origin not allowed }
-  /api/v1/ui/analyze:
-    post:
-      operationId: analyzeForUi
-      security: [{ UiSession: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
-      requestBody:
-        $ref: '#/components/requestBodies/Video'
-      responses:
-        '202': { $ref: '#/components/responses/Accepted' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { description: Origin not allowed }
-        '413': { description: File too large }
-        '415': { description: Unsupported video MIME type }
-        '503': { description: Job capacity exhausted }
-  /api/v1/ui/jobs/{job_id}:
-    get:
-      operationId: getUiJob
-      description: Only jobs submitted by this UI session are visible.
-      security: [{ UiSession: [] }]
-      parameters:
-        - $ref: '#/components/parameters/JobId'
-      responses:
-        '200': { $ref: '#/components/responses/Job' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { description: 'Job missing, expired, or owned by another session' }
 components:
   securitySchemes:
     ApiKey:
@@ -116,13 +46,7 @@ components:
       in: header
       name: X-API-Key
       description: Server-side JURY_API_KEY. Required on both public machine endpoints; never embed in frontend assets.
-    UiSession: { type: apiKey, in: cookie, name: ui_session }
   parameters:
-    Origin:
-      name: Origin
-      in: header
-      required: true
-      schema: { type: string }
     JobId:
       name: job_id
       in: path

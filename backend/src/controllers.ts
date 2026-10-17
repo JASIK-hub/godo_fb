@@ -1,9 +1,7 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Post, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Controller, Get, HttpCode, Param, Post, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
 import { unlink } from 'node:fs/promises';
-import { ApiKeyGuard, AuthRequest, COOKIE, SessionGuard, Sessions } from './auth';
-import { Config } from './config';
+import { ApiKeyGuard, AuthRequest } from './auth';
 import { Jobs } from './jobs';
 import { CapacityInterceptor, UploadRequest } from './upload';
 
@@ -28,33 +26,5 @@ export class PublicController {
   @UseInterceptors(CapacityInterceptor, FileInterceptor('file'))
   analyze(@UploadedFile() file: Express.Multer.File | undefined, @Req() req: UploadRequest) { return submit(this.jobs, file, req); }
   @Get('jobs/:job_id')
-  get(@Param('job_id') id: string, @Req() req: AuthRequest) { return this.jobs.get(id, req.owner); }
-}
-
-@Controller('api/v1/ui')
-export class UiController {
-  constructor(private readonly jobs: Jobs, private readonly sessions: Sessions, private readonly config: Config) {}
-  @Post('session')
-  login(@Body() body: unknown, @Req() req: AuthRequest, @Res({ passthrough: true }) res: Response) {
-    this.sessions.checkOrigin(req);
-    const code = body && typeof body === 'object' ? (body as Record<string, unknown>).access_code : undefined;
-    const { token, expires } = this.sessions.create(code);
-    res.cookie(COOKIE, token, { httpOnly: true, secure: this.config.production, sameSite: 'strict', path: '/api/v1/ui', maxAge: this.config.sessionTtl });
-    return { expires_at: new Date(expires).toISOString() };
-  }
-  @Delete('session')
-  @HttpCode(204)
-  @UseGuards(SessionGuard)
-  logout(@Req() req: AuthRequest, @Res({ passthrough: true }) res: Response) {
-    this.sessions.revoke(req.owner);
-    res.clearCookie(COOKIE, { httpOnly: true, secure: this.config.production, sameSite: 'strict', path: '/api/v1/ui' });
-  }
-  @Post('analyze')
-  @HttpCode(202)
-  @UseGuards(SessionGuard)
-  @UseInterceptors(CapacityInterceptor, FileInterceptor('file'))
-  analyze(@UploadedFile() file: Express.Multer.File | undefined, @Req() req: UploadRequest) { return submit(this.jobs, file, req); }
-  @Get('jobs/:job_id')
-  @UseGuards(SessionGuard)
   get(@Param('job_id') id: string, @Req() req: AuthRequest) { return this.jobs.get(id, req.owner); }
 }

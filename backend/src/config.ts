@@ -6,7 +6,6 @@ export class Config {
   readonly env = process.env.NODE_ENV ?? 'production';
   readonly production = this.env !== 'development' && this.env !== 'test';
   readonly apiKey = this.juryKey();
-  readonly uiCode = this.secret('UI_ACCESS_CODE');
   readonly uiOrigin = this.origin();
   readonly stub = process.env.ML_STUB_ENABLED === 'true';
   readonly mlUrl = process.env.ML_SERVICE_URL ?? process.env.ML_URL;
@@ -31,10 +30,8 @@ export class Config {
   readonly concurrency = this.integer('ML_CONCURRENCY', 1, 32);
   readonly maxJobs = this.integer('MAX_STORED_JOBS', 1000, 100000);
   readonly jobTtl = this.integer('JOB_TTL_MS', 3600000, 86400000);
-  readonly sessionTtl = this.integer('SESSION_TTL_MS', 3600000, 86400000);
 
   constructor() {
-    if (this.apiKey === this.uiCode) throw new ConfigurationError('JURY_API_KEY and UI_ACCESS_CODE must differ');
     if (process.env.ML_STUB_ENABLED && !['true', 'false'].includes(process.env.ML_STUB_ENABLED)) {
       throw new Error('ML_STUB_ENABLED must be true or false');
     }
@@ -61,12 +58,6 @@ export class Config {
   private juryKey(): string {
     const value = process.env.JURY_API_KEY;
     if (!value || !value.trim()) throw new ConfigurationError('JURY_API_KEY must be set and non-empty');
-    return value;
-  }
-
-  private secret(name: string): string {
-    const value = process.env[name];
-    if (!value || value.length < 32) throw new Error(`${name} must contain at least 32 characters`);
     return value;
   }
 

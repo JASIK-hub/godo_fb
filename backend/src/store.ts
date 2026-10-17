@@ -20,7 +20,6 @@ export class Store implements OnApplicationShutdown {
       CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, owner TEXT NOT NULL, file TEXT NOT NULL,
         mime TEXT NOT NULL, created INTEGER NOT NULL, deadline INTEGER NOT NULL, expires INTEGER NOT NULL, payload TEXT NOT NULL,
         status TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, expires INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS job_expiry ON jobs(expires);
       CREATE INDEX IF NOT EXISTS job_status ON jobs(status);`);
     // Never replay expensive inference after a crash: its outcome is unknown.
@@ -46,13 +45,8 @@ export class Store implements OnApplicationShutdown {
   }
   prune() {
     this.db.prepare('DELETE FROM jobs WHERE expires < ?').run(Date.now());
-    this.db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
   }
   count(): number { return Number(this.db.prepare('SELECT count(*) n FROM jobs').get()!.n); }
-  sessionPut(id: string, expires: number) { this.db.prepare('INSERT INTO sessions VALUES (?,?)').run(id, expires); }
-  sessionGet(id: string): number { return Number(this.db.prepare('SELECT expires FROM sessions WHERE id=?').get(id)?.expires ?? 0); }
-  sessionDelete(id: string) { this.db.prepare('DELETE FROM sessions WHERE id=?').run(id); }
-  sessionCount(): number { return Number(this.db.prepare('SELECT count(*) n FROM sessions').get()!.n); }
   healthy() { this.db.prepare('SELECT 1').get(); return true; }
   onApplicationShutdown() { this.db.close(); }
 }

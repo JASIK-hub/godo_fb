@@ -13,14 +13,15 @@ const { Store } = require('../dist/store');
 const { randomUUID } = require('node:crypto');
 
 const API_KEY = 'test-api-key-'.repeat(4);
-const UI_CODE = 'test-ui-code-'.repeat(4);
+const WRONG_KEY = 'wrong-api-key-'.repeat(4);
 const origin = 'http://localhost:5173';
 let app, api, ml, mlMode = 'success', received, releaseMl;
 let video, largeVideo, testDir, mlCalls = 0;
 
 function environment() {
+  delete process.env.UI_ACCESS_CODE;
   Object.assign(process.env, {
-    NODE_ENV: 'test', JURY_API_KEY: API_KEY, UI_ACCESS_CODE: UI_CODE, UI_ORIGIN: origin,
+    NODE_ENV: 'test', JURY_API_KEY: API_KEY, UI_ORIGIN: origin,
     ML_STUB_ENABLED: 'false', ML_TIMEOUT_MS: '1000',
     MAX_PENDING_JOBS: '2', ML_CONCURRENCY: '1', JOB_TTL_MS: '3600000',
     MAX_UPLOAD_BYTES: '33554432', MEDIA_TIMEOUT_MS: '3000', JOB_DEADLINE_MS: '10000', DEADLINE_MARGIN_MS: '100',
@@ -81,20 +82,22 @@ async function poll(id) {
 }
 
 test('OpenAPI contract is valid', async () => {
-  await SwaggerParser.validate('../contracts/public-api.yaml');
+  const spec = await SwaggerParser.validate('../contracts/public-api.yaml');
+  assert.deepEqual(Object.keys(spec.paths).sort(), ['/api/v1/analyze', '/api/v1/jobs/{job_id}']);
+  assert.deepEqual(spec.security, [{ ApiKey: [] }]);
 });
 
-test('both public routes require API key, even with UI credentials', async () => {
+test('both public routes require the jury API key', async () => {
   await api.post('/api/v1/analyze').expect(401);
   await api.get('/api/v1/jobs/anything').expect(401);
-  await api.get('/api/v1/jobs/anything').set('X-API-Key', UI_CODE).expect(401);
+  await api.get('/api/v1/jobs/anything').set('X-API-Key', WRONG_KEY).expect(401);
   await api.get('/api/v1/jobs/anything').set('X-API-Key', API_KEY).expect(404);
 });
 
 test('API key guard rejects missing/empty/wrong keys on both routes before upload or ML', async () => {
   const calls = mlCalls;
   const filesBefore = (await readdir(join(process.env.DATA_DIR, 'uploads'))).sort();
-  for (const key of [undefined, '', 'wrong-short', 'x'.repeat(Buffer.byteLength(API_KEY)), UI_CODE]) {
+  for (const key of [undefined, '', 'wrong-short', 'x'.repeat(Buffer.byteLength(API_KEY)), WRONG_KEY]) {
     let post = api.post('/api/v1/analyze');
     if (key !== undefined) post = post.set('X-API-Key', key);
     // Invalid multipart must not reach the parser or produce an upload-validation error.
@@ -121,7 +124,7 @@ test('process exits with a safe explicit error when JURY_API_KEY is absent or bl
     assert.equal(result.status, 1);
     assert.match(result.stderr, /JURY_API_KEY must be set and non-empty/);
     assert.equal(result.stderr.includes(env.API_KEY), false);
-    assert.equal(result.stderr.includes(UI_CODE), false);
+    assert.equal(result.stderr.includes(WRONG_KEY), false);
   }
 });
 
@@ -181,23 +184,22 @@ test('queue is bounded and resumes after a failure', async () => {
   assert.equal((await poll(next.body.job_id)).status, 'done');
 });
 
-test('UI session uses its own credential, requires Origin, isolates jobs and revokes logout', async () => {
-  await api.post('/api/v1/ui/session').send({ access_code: UI_CODE }).expect(403);
-  await api.post('/api/v1/ui/session').set('Origin', origin).send({ access_code: API_KEY }).expect(401);
-  const login = await api.post('/api/v1/ui/session').set('Origin', origin).send({ access_code: UI_CODE }).expect(201);
-  const cookie = login.headers['set-cookie'][0].split(';')[0];
-  assert.match(login.headers['set-cookie'][0], /HttpOnly/);
-  assert.match(login.headers['set-cookie'][0], /SameSite=Strict/);
-  assert.equal(JSON.stringify(login.body).includes(UI_CODE), false);
-  await api.post('/api/v1/analyze').set('Cookie', cookie).expect(401);
-  await api.post('/api/v1/ui/analyze').set('Cookie', cookie).set('Origin', 'https://evil.example').expect(403);
-  const job = await api.post('/api/v1/ui/analyze').set('Cookie', cookie).set('Origin', origin).attach('file', video, 'x.mp4').expect(202);
-  await api.get(`/api/v1/ui/jobs/${job.body.job_id}`).set('Cookie', cookie).expect(200);
-  await api.get(`/api/v1/jobs/${job.body.job_id}`).set('X-API-Key', API_KEY).expect(404);
-  const second = await api.post('/api/v1/ui/session').set('Origin', origin).send({ access_code: UI_CODE }).expect(201);
-  await api.get(`/api/v1/ui/jobs/${job.body.job_id}`).set('Cookie', second.headers['set-cookie'][0].split(';')[0]).expect(404);
-  await api.delete('/api/v1/ui/session').set('Cookie', cookie).set('Origin', origin).expect(204);
-  await api.get(`/api/v1/ui/jobs/${job.body.job_id}`).set('Cookie', cookie).expect(401);
+test('backend starts without UI access code; removed UI routes do not bypass the key guard', async () => {
+  assert.equal(process.env.UI_ACCESS_CODE, undefined);
+  assert.equal(new Config().apiKey, API_KEY);
+  await api.get('/health/live').expect(200);
+  for (const key of [undefined, API_KEY]) {
+    for (const [method, path] of [['post', '/api/v1/ui/session'], ['delete', '/api/v1/ui/session'],
+      ['post', '/api/v1/ui/analyze'], ['get', '/api/v1/ui/jobs/missing']]) {
+      let req = api[method](path);
+      if (key) req = req.set('X-API-Key', key);
+      await req.expect(404);
+    }
+  }
+  await api.post('/api/v1/analyze').set('Cookie', 'ui_session=obsolete').expect(401);
+  await api.get('/api/v1/jobs/missing').set('Cookie', 'ui_session=obsolete').expect(401);
+  const cors = await api.options('/api/v1/analyze').set('Origin', origin).set('Access-Control-Request-Method', 'POST').expect(204);
+  assert.equal(cors.headers['access-control-allow-origin'], origin);
 });
 
 test('stub is explicit and forbidden in final environments; real ML config is required', () => {
@@ -218,11 +220,11 @@ test('stub is explicit and forbidden in final environments; real ML config is re
   } finally { process.env = saved; }
 });
 
-test('explicit stub returns clearly marked demo results; jobs and sessions expire', async () => {
+test('explicit stub returns clearly marked demo results; jobs expire', async () => {
   const saved = { ...process.env };
   let demo;
   try {
-    Object.assign(process.env, { ML_STUB_ENABLED: 'true', JOB_TTL_MS: '200', SESSION_TTL_MS: '200', DATA_DIR: join(testDir, 'demo') });
+    Object.assign(process.env, { ML_STUB_ENABLED: 'true', JOB_TTL_MS: '200', DATA_DIR: join(testDir, 'demo') });
     ({ app: demo } = await createApp());
     await demo.init();
     const client = request(demo.getHttpServer());
@@ -234,10 +236,8 @@ test('explicit stub returns clearly marked demo results; jobs and sessions expir
       await new Promise(resolve => setTimeout(resolve, 5));
     }
     assert.equal(result.body.source, 'stub');
-    const session = await client.post('/api/v1/ui/session').set('Origin', origin).send({ access_code: UI_CODE }).expect(201);
     await new Promise(resolve => setTimeout(resolve, 250));
     await client.get(`/api/v1/jobs/${job.body.job_id}`).set('X-API-Key', API_KEY).expect(404);
-    await client.get('/api/v1/ui/jobs/anything').set('Cookie', session.headers['set-cookie'][0].split(';')[0]).expect(401);
   } finally { await demo?.close(); process.env = saved; }
 });
 
@@ -330,7 +330,7 @@ test('duration limit is enforced before ML and retention deletes old orphan uplo
   assert.equal((await readdir(join(config.dataDir, 'uploads'))).includes(require('node:path').basename(orphan)), false);
 });
 
-test('hard restart preserves completed results, sessions and fails interrupted jobs without replay', async () => {
+test('hard restart preserves completed results and fails interrupted jobs without replay', async () => {
   const env = { ...process.env, DATA_DIR: join(testDir, 'restart'), ML_TIMEOUT_MS: '2000' };
   const start = () => new Promise((resolveStart, reject) => {
     const child = spawn(process.execPath, ['-e', "require('./dist/app').createApp().then(async({app})=>{await app.listen(0,'127.0.0.1');console.log('URL:'+await app.getUrl())})"],
@@ -350,14 +350,12 @@ test('hard restart preserves completed results, sessions and fails interrupted j
       if (state.body.status === 'done') break;
       await new Promise(r => setTimeout(r, 10));
     }
-    const login = await proc.client.post('/api/v1/ui/session').set('Origin', origin).send({ access_code: UI_CODE }).expect(201);
-    const cookie = login.headers['set-cookie'][0].split(';')[0];
     mlMode = 'timeout';
-    const pending = await proc.client.post('/api/v1/ui/analyze').set('Origin', origin).set('Cookie', cookie).attach('file', video, 'v.mov').expect(202);
+    const pending = await proc.client.post('/api/v1/analyze').set('X-API-Key', API_KEY).attach('file', video, 'v.mov').expect(202);
     await kill(proc.child);
     const calls = mlCalls;
     proc = await start();
-    const recovered = await proc.client.get(`/api/v1/ui/jobs/${pending.body.job_id}`).set('Cookie', cookie).expect(200);
+    const recovered = await proc.client.get(`/api/v1/jobs/${pending.body.job_id}`).set('X-API-Key', API_KEY).expect(200);
     assert.equal(recovered.body.status, 'failed');
     assert.equal(recovered.body.error.code, 'PROCESS_INTERRUPTED');
     const persisted = await proc.client.get(`/api/v1/jobs/${done.body.job_id}`).set('X-API-Key', API_KEY).expect(200);

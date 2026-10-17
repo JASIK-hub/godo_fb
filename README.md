@@ -13,7 +13,7 @@ npm ci
 cp .env.example .env
 ```
 
-Задайте разные случайные JURY_API_KEY и UI_ACCESS_CODE длиной минимум 32 символа. Укажите точный UI_ORIGIN и локальный RULES_PATH. Для разработки можно скопировать `config/rules.example.json` в `config/rules.json` и явно включить `NODE_ENV=development`, `ML_STUB_ENABLED=true`. Пример справочника и заглушка запрещены в production. Заглушка всё равно проходит реальное декодирование видео.
+Задайте случайный JURY_API_KEY. Укажите точный UI_ORIGIN для CORS и локальный RULES_PATH. Для разработки можно скопировать `config/rules.example.json` в `config/rules.json` и явно включить `NODE_ENV=development`, `ML_STUB_ENABLED=true`. Пример справочника и заглушка запрещены в production. Заглушка всё равно проходит реальное декодирование видео.
 
 Генерация ключа жюри:
 
@@ -30,7 +30,7 @@ curl --fail-with-body https://review.example.org/api/v1/jobs/RETURNED_JOB_ID \
   -H "X-API-Key: $JURY_API_KEY"
 ```
 
-Замените адрес и RETURNED_JOB_ID. Ключ нельзя встраивать во frontend: браузер должен использовать существующие UI-сессии. Подробнее — [авторизация backend](backend/README.md#api).
+Замените адрес и RETURNED_JOB_ID. Ключ нельзя встраивать во frontend. Способ доступа из браузера требует отдельного согласования; публичного обхода проверки ключа нет. Подробнее — [авторизация backend](backend/README.md#api).
 
 ```sh
 npm run build

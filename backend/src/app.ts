@@ -7,8 +7,8 @@ import { access, mkdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import type { Request, Response, NextFunction } from 'express';
 import { Config } from './config';
-import { ApiKeyGuard, SessionGuard, Sessions } from './auth';
-import { PublicController, UiController } from './controllers';
+import { ApiKeyGuard } from './auth';
+import { PublicController } from './controllers';
 import { Jobs } from './jobs';
 import { MlClient } from './ml';
 import { CapacityInterceptor, uploadOptions } from './upload';
@@ -25,9 +25,9 @@ export async function createApp() {
   await mkdir(directory, { recursive: true });
   @Module({
     imports: [MulterModule.register(uploadOptions(directory, config.maxUpload))],
-    controllers: [PublicController, UiController, HealthController],
+    controllers: [PublicController, HealthController],
     providers: [{ provide: Config, useValue: config }, Store, Worker, Media, Rules,
-      Jobs, MlClient, Sessions, ApiKeyGuard, SessionGuard, CapacityInterceptor],
+      Jobs, MlClient, ApiKeyGuard, CapacityInterceptor],
   })
   class AppModule {}
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: ['error', 'warn'], abortOnError: false });

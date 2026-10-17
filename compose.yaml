@@ -10,7 +10,6 @@ services:
     environment:
       NODE_ENV: production
       JURY_API_KEY: ${JURY_API_KEY:?Set JURY_API_KEY}
-      UI_ACCESS_CODE: ${UI_ACCESS_CODE:?Set UI_ACCESS_CODE}
       UI_ORIGIN: ${UI_ORIGIN:?Set public HTTPS origin}
       ML_STUB_ENABLED: "false"
       ML_SERVICE_URL: ${ML_SERVICE_URL:-http://ml:8000/analyze}
@@ -30,7 +29,6 @@ services:
       MAX_VIDEO_DURATION_SECONDS: ${MAX_VIDEO_DURATION_SECONDS:-3600}
       VIDEO_RETENTION_MS: ${VIDEO_RETENTION_MS:-3600000}
       JOB_TTL_MS: ${JOB_TTL_MS:-3600000}
-      SESSION_TTL_MS: ${SESSION_TTL_MS:-3600000}
     volumes:
       - backend-data:/data
       - type: bind
