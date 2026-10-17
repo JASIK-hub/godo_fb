@@ -13,7 +13,7 @@ function frameSrc(url: string): string {
   return /^https?:\/\//.test(url) ? url : `${config.apiBaseUrl}${url}`;
 }
 
-/** Галерея кадров события: основной кадр + миниатюры. */
+/** Галерея кадров события. */
 function FrameGallery({ frames, alt }: { frames: string[]; alt: string }) {
   const [idx, setIdx] = useState(0);
   if (frames.length === 0) return null;
@@ -24,7 +24,7 @@ function FrameGallery({ frames, alt }: { frames: string[]; alt: string }) {
       <img
         src={frameSrc(url)}
         alt={alt}
-        className="max-h-64 w-full rounded-lg border border-slate-700 object-contain"
+        className="max-h-64 w-full rounded-lg border border-outline-variant/40 object-contain bg-surface-container-low"
         loading="lazy"
       />
       {frames.length > 1 && (
@@ -35,7 +35,7 @@ function FrameGallery({ frames, alt }: { frames: string[]; alt: string }) {
               type="button"
               onClick={() => setIdx(i)}
               className={`h-12 w-20 overflow-hidden rounded border ${
-                i === idx ? 'border-blue-500' : 'border-slate-600 opacity-60 hover:opacity-100'
+                i === idx ? 'border-primary' : 'border-outline-variant/40 opacity-60 hover:opacity-100'
               }`}
             >
               <img
@@ -52,58 +52,73 @@ function FrameGallery({ frames, alt }: { frames: string[]; alt: string }) {
   );
 }
 
-/** Карточка одного найденного события. */
+/** Карточка одного события. */
 function EventCard({ event }: { event: DetectedEvent }) {
   return (
-    <article className="rounded-xl border border-slate-700 bg-slate-800/60 p-4">
+    <article className="bg-surface-container-lowest rounded-xl shadow-sm p-4">
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">
+        <span className="px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-label-sm text-label-sm">
           {event.type}
         </span>
-        <code className="rounded bg-slate-900 px-2 py-0.5 text-xs text-slate-300">
+        <code className="px-2 py-0.5 rounded bg-surface-container-high font-body-md-tabular text-body-md-tabular text-on-surface">
           {event.timecode}
-        </code>
+</code>
       </div>
-      <FrameGallery frames={event.frames ?? []} alt={`Кадр события ${event.type} на ${event.timecode}`} />
-      <p className="mb-2 text-sm text-slate-300">{event.description}</p>
+      <FrameGallery
+        frames={event.frames ?? []}
+        alt={`Кадр события ${event.type} на ${event.timecode}`}
+      />
+      <p className="mb-2 font-body-lg text-body-lg text-on-surface">{event.description}</p>
       {event.source && (
-        <p className="text-xs text-slate-500">
-          Нормативный источник: {event.source.document}
-          {event.source.clause ? `, ${event.source.clause}` : ''}
-          {event.source.url && (
-            <>
-              {' · '}
-              <a
-                href={event.source.url}
-                target="_blank"
-                rel="noreferrer"
-                className="underline hover:text-slate-300"
-              >
-                текст норматива
-              </a>
-            </>
-          )}
-        </p>
+        <div className="flex items-start gap-1 font-body-sm text-body-sm text-secondary">
+          <span className="material-symbols-outlined text-[16px] text-primary-container">menu_book</span>
+          <span>
+            Нормативный источник: {event.source.document}
+            {event.source.clause ? `, ${event.source.clause}` : ''}
+            {event.source.url && (
+              <>
+                {' · '}
+                <a
+                  href={event.source.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline hover:text-on-surface"
+                >
+                  текст норматива
+                </a>
+              </>
+            )}
+          </span>
+        </div>
       )}
     </article>
   );
 }
 
+/** Экран результата в стиле Reference_1. */
 export function ResultScreen({ job, onReset }: ResultScreenProps) {
   const verdict = job.result?.verdict ?? '';
   const events = job.result?.events ?? [];
   const noViolations = events.length === 0;
 
   return (
-    <section className="mx-auto w-full max-w-3xl">
-      <h1 className="mb-2 text-2xl font-semibold text-slate-100">
-        {verdict || 'Результат анализа'}
-      </h1>
-      <p className="mb-6 text-sm text-slate-400">
-        {noViolations
-          ? 'Событий нарушений не найдено.'
-          : `Найдено событий: ${events.length}`}
-      </p>
+    <div className="w-full max-w-4xl mx-auto space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-1 text-secondary font-label-sm text-label-sm uppercase tracking-wider mb-1">
+            <span className="material-symbols-outlined text-[16px] text-primary-container">fact_check</span>
+            <span>Модуль верификации • Результат</span>
+          </div>
+          <h1 className="font-headline-xl text-headline-xl text-on-surface">
+            {verdict || 'Результат анализа'}
+          </h1>
+          <p className="font-body-lg text-body-lg text-secondary mt-1">
+            {noViolations
+              ? 'Событий нарушений не найдено.'
+              : `Найдено событий: ${events.length}`}
+          </p>
+        </div>
+      </div>
 
       <div className="flex flex-col gap-4">
         {events.map((event, i) => (
@@ -111,13 +126,20 @@ export function ResultScreen({ job, onReset }: ResultScreenProps) {
         ))}
       </div>
 
-      <button
-        type="button"
-        onClick={onReset}
-        className="mt-6 rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-700/50"
-      >
-        Загрузить другое видео
-      </button>
-    </section>
+      <div className="bg-surface-container-lowest rounded-xl shadow-sm p-4 flex items-center justify-between">
+        <div className="flex items-center gap-1 text-secondary font-body-sm text-body-sm">
+          <span className="material-symbols-outlined text-[16px] text-tertiary-container">verified</span>
+          <span>Результат сформирован автоматически, проверьте ключевые кадры</span>
+        </div>
+        <button
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-secondary hover:text-on-surface hover:bg-surface-container-high transition-colors font-label-md text-label-md"
+          type="button"
+          onClick={onReset}
+        >
+          <span className="material-symbols-outlined text-[16px]">undo</span>
+          <span>Загрузить другое видео</span>
+        </button>
+      </div>
+    </div>
   );
 }

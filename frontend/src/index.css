@@ -1,1 +1,130 @@
 @import 'tailwindcss';
+
+/*
+ * Дизайн-токены из frontend/Reference_1.ts (Stitch: «Forte Review»).
+ * Светлая Material 3-палитра, Inter, размеры текста — как в референсе.
+ */
+@theme {
+  /* Surface */
+  --color-surface: #f9f9ff;
+  --color-surface-dim: #d3daea;
+  --color-surface-bright: #f9f9ff;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f0f3ff;
+  --color-surface-container: #e7eefe;
+  --color-surface-container-high: #e2e8f8;
+  --color-surface-container-highest: #dce2f3;
+  --color-surface-variant: #dce2f3;
+  --color-surface-tint: #a53459;
+  --color-on-surface: #151c27;
+  --color-on-surface-variant: #564146;
+  --color-inverse-surface: #2a313d;
+  --color-inverse-on-surface: #ebf1ff;
+  --color-inverse-primary: #ffb1c3;
+
+  /* Primary */
+  --color-primary: #66002c;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #861b42;
+  --color-on-primary-container: #ff96b0;
+  --color-on-primary-fixed: #3f0019;
+  --color-on-primary-fixed-variant: #861b42;
+  --color-primary-fixed: #ffd9e0;
+  --color-primary-fixed-dim: #ffb1c3;
+
+  /* Secondary */
+  --color-secondary: #555f6f;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #d6e0f3;
+  --color-on-secondary-container: #596373;
+  --color-secondary-fixed: #d9e3f6;
+  --color-secondary-fixed-dim: #bdc7d9;
+  --color-on-secondary-fixed: #121c2a;
+  --color-on-secondary-fixed-variant: #3d4756;
+
+  /* Tertiary */
+  --color-tertiary: #003925;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #005237;
+  --color-on-tertiary-container: #55ca99;
+  --color-tertiary-fixed: #85f8c4;
+  --color-tertiary-fixed-dim: #68dba9;
+  --color-on-tertiary-fixed: #002114;
+  --color-on-tertiary-fixed-variant: #005137;
+
+  /* Error + outline */
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #93000a;
+  --color-outline: #897175;
+  --color-outline-variant: #dcc0c4;
+  --color-background: #f9f9ff;
+  --color-on-background: #151c27;
+
+  /* Шрифты (Inter из Reference_1) */
+  --font-body-sm: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-body-md: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-body-lg: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-label-sm: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-label-md: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-headline-md: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-headline-lg: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-headline-xl: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  /* Размеры текста из tailwind-config референса */
+  --text-body-sm: 12px;
+  --text-body-sm--line-height: 16px;
+  --text-body-sm--font-weight: 400;
+  --text-body-md: 13px;
+  --text-body-md--line-height: 18px;
+  --text-body-md--font-weight: 400;
+  --text-body-md-tabular: 13px;
+  --text-body-md-tabular--line-height: 18px;
+  --text-body-md-tabular--font-weight: 500;
+  --text-body-lg: 15px;
+  --text-body-lg--line-height: 22px;
+  --text-body-lg--font-weight: 400;
+  --text-label-sm: 11px;
+  --text-label-sm--line-height: 14px;
+  --text-label-sm--letter-spacing: 0.03em;
+  --text-label-sm--font-weight: 600;
+  --text-label-md: 12px;
+  --text-label-md--line-height: 16px;
+  --text-label-md--letter-spacing: 0.02em;
+  --text-label-md--font-weight: 600;
+  --text-headline-md: 16px;
+  --text-headline-md--line-height: 22px;
+  --text-headline-md--letter-spacing: -0.01em;
+  --text-headline-md--font-weight: 600;
+  --text-headline-lg: 20px;
+  --text-headline-lg--line-height: 26px;
+  --text-headline-lg--letter-spacing: -0.015em;
+  --text-headline-lg--font-weight: 600;
+  --text-headline-xl: 28px;
+  --text-headline-xl--line-height: 34px;
+  --text-headline-xl--letter-spacing: -0.02em;
+  --text-headline-xl--font-weight: 700;
+}
+
+@layer base {
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    @apply bg-surface font-body-md text-body-md text-on-surface antialiased;
+  }
+
+  .material-symbols-outlined {
+    font-variation-settings:
+      'FILL' 0,
+      'wght' 400,
+      'GRAD' 0,
+      'opsz' 24;
+    line-height: 1;
+    user-select: none;
+  }
+}
