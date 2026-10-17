@@ -1,0 +1,195 @@
+openapi: 3.0.3
+info:
+  title: Video Analysis API
+  version: 1.0.0
+  description: |
+    Upload completes before 202; inference runs in the background. Poll until done or failed.
+    Jobs and UI sessions are process-local, lost on restart, and expire after 1 hour by default.
+    Deploy one backend instance. Queue saturation returns 503. Files are limited to 100 MiB
+    by default; supported declared MIME types are video/mp4, video/webm, video/quicktime.
+    Public API credentials must never be shipped to a browser. UI uses separate cookie routes.
+servers:
+  - url: /
+security:
+  - ApiKey: []
+paths:
+  /api/v1/analyze:
+    post:
+      operationId: analyze
+      summary: Submit a video
+      requestBody:
+        $ref: '#/components/requestBodies/Video'
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { description: File too large }
+        '415': { description: Unsupported video MIME type }
+        '503': { description: Job capacity exhausted; retry later }
+  /api/v1/jobs/{job_id}:
+    get:
+      operationId: getJob
+      summary: Read analysis status
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200': { $ref: '#/components/responses/Job' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Job missing or expired }
+  /api/v1/ui/session:
+    post:
+      operationId: createUiSession
+      security: []
+      description: |
+        Exchange the separate UI access code for an HttpOnly, SameSite=Strict session cookie.
+        Origin must exactly equal server UI_ORIGIN. Use credentials include. The code is
+        entered by the user, never embedded in frontend assets. Secure cookies in production.
+        Login is limited to 20 attempts per minute per backend process.
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [access_code]
+              properties:
+                access_code: { type: string, format: password }
+      responses:
+        '201':
+          description: Session created; session ID is only sent in Set-Cookie
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [expires_at]
+                properties:
+                  expires_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Origin not allowed }
+        '429': { description: Too many login attempts }
+        '503': { description: Session capacity exhausted }
+    delete:
+      operationId: deleteUiSession
+      security: [{ UiSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      responses:
+        '204': { description: Session revoked and cookie cleared }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Origin not allowed }
+  /api/v1/ui/analyze:
+    post:
+      operationId: analyzeForUi
+      security: [{ UiSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        $ref: '#/components/requestBodies/Video'
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Origin not allowed }
+        '413': { description: File too large }
+        '415': { description: Unsupported video MIME type }
+        '503': { description: Job capacity exhausted }
+  /api/v1/ui/jobs/{job_id}:
+    get:
+      operationId: getUiJob
+      description: Only jobs submitted by this UI session are visible.
+      security: [{ UiSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200': { $ref: '#/components/responses/Job' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Job missing, expired, or owned by another session }
+components:
+  securitySchemes:
+    ApiKey: { type: apiKey, in: header, name: X-API-Key }
+    UiSession: { type: apiKey, in: cookie, name: ui_session }
+  parameters:
+    Origin:
+      name: Origin
+      in: header
+      required: true
+      schema: { type: string }
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  requestBodies:
+    Video:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            required: [file]
+            properties:
+              file: { type: string, format: binary }
+  responses:
+    Accepted:
+      description: Queued for background analysis
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [job_id]
+            properties:
+              job_id: { type: string, format: uuid }
+    Job:
+      description: Current job state
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/ProcessingJob'
+              - $ref: '#/components/schemas/DoneJob'
+              - $ref: '#/components/schemas/FailedJob'
+            discriminator: { propertyName: status }
+    BadRequest: { description: Missing, empty, or invalid multipart file }
+    Unauthorized: { description: Missing or invalid credentials }
+  schemas:
+    ProcessingJob:
+      type: object
+      required: [job_id, status]
+      properties:
+        job_id: { type: string, format: uuid }
+        status: { type: string, enum: [processing] }
+    DoneJob:
+      type: object
+      required: [job_id, status, verdict, violations, source]
+      properties:
+        job_id: { type: string, format: uuid }
+        status: { type: string, enum: [done] }
+        verdict: { type: string, enum: [pass, fail] }
+        violations:
+          type: array
+          items: { $ref: '#/components/schemas/Violation' }
+        source:
+          type: string
+          enum: [ml, stub]
+          description: UI must visibly identify stub results as demo data.
+    FailedJob:
+      type: object
+      required: [job_id, status, error]
+      properties:
+        job_id: { type: string, format: uuid }
+        status: { type: string, enum: [failed] }
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, enum: [ML_UNAVAILABLE, ML_INVALID_RESPONSE] }
+            message: { type: string }
+    Violation:
+      type: object
+      required: [code, message, timestamp_seconds]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        timestamp_seconds: { type: number, minimum: 0 }
