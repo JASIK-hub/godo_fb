@@ -58,16 +58,24 @@ export async function analyzeVideo(file: File): Promise<AnalyzeResponse> {
 /** GET /api/site/jobs/{jobId} — состояние задачи анализа. */
 export async function getJob(jobId: string): Promise<Job> {
   const job = await request<PublicJob>(`/api/site/jobs/${encodeURIComponent(jobId)}`);
-  if (job.status === 'failed') return { ...job, error: job.error.message };
+  if (job.status === 'failed') return { ...job, error: job.error.code === 'ML_INCONCLUSIVE'
+    ? 'Недостаточно визуальных данных. Нужна проверка человеком.'
+    : job.error.message };
   if (job.status === 'processing') return job;
+  if (job.status !== 'done' || !['pass', 'fail'].includes(job.verdict) || !Array.isArray(job.violations)) {
+    throw new ApiError(502, 'Некорректный ответ сервера анализа');
+  }
   return {
     job_id: job.job_id, status: job.status, source: job.source,
     result: {
       verdict: job.verdict === 'pass' ? 'Нарушений не обнаружено' : 'Обнаружены нарушения',
       events: job.violations.map(violation => ({
-        type: violation.code, description: violation.message,
+        type: violation.type ?? violation.code, description: violation.message,
         timecode: violation.timestamp_seconds === undefined ? '—' : String(violation.timestamp_seconds),
-        frames: [], source: { document: '' },
+        frames: (violation.evidence_frames ?? []).map(frame => 'data:image/jpeg;base64,' + frame.image_base64),
+        source: violation.rule
+          ? { document: violation.rule.title, clause: violation.rule.section, url: violation.rule.url }
+          : { document: '' },
       })),
     },
   };

@@ -10,6 +10,7 @@ interface ResultScreenProps {
 
 /** URL кадра: абсолютный оставляем, относительный резолвим от apiBaseUrl. */
 function frameSrc(url: string): string {
+  if (url.startsWith('data:image/jpeg;base64,')) return url;
   return /^https?:\/\//.test(url) ? url : `${config.apiBaseUrl}${url}`;
 }
 
@@ -208,7 +209,7 @@ export function ResultScreen({ job, onReset }: ResultScreenProps) {
         <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="inline-flex items-center gap-1 px-3 py-1 bg-surface-container-high text-on-surface rounded-full font-label-md text-label-md">
             <span className="w-2 h-2 rounded-full bg-tertiary-container" />
-            <span>Событий нарушений не найдено</span>
+            <span>По проверенным критериям нарушения не обнаружены</span>
           </div>
           <button
             className="inline-flex items-center gap-1 px-3 py-2 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface rounded-lg font-label-md text-label-md transition-colors shadow-sm"

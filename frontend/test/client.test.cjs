@@ -65,3 +65,27 @@ test('ML failed response remains failed in the UI; done uses the public verdict 
     }
   }
 });
+
+test('evidence and legal source reach the result screen model', async () => {
+  const { api } = client('', { ok: true, json: async () => ({
+    job_id: 'id', status: 'done', source: 'ml', verdict: 'fail', violations: [{
+      code: 'TEST', type: 'Synthetic event', message: 'Description', timestamp_seconds: 2,
+      evidence_frames: [{ timestamp_sec: 2, image_base64: '/9j/2Q==' }],
+      rule: { title: 'Synthetic source', section: '1', url: 'https://example.test/rules' },
+    }],
+  }) });
+  const event = (await api.getJob('id')).result.events[0];
+  assert.equal(event.type, 'Synthetic event');
+  assert.equal(event.frames[0], 'data:image/jpeg;base64,/9j/2Q==');
+  assert.equal(event.source.document, 'Synthetic source');
+  assert.equal(event.source.clause, '1');
+});
+test('inconclusive prompts human review, never shows a successful empty result', async () => {
+  const { api } = client('', { ok: true, json: async () => ({
+    job_id: 'id', status: 'failed', error: { code: 'ML_INCONCLUSIVE', message: 'Internal' },
+  }) });
+  const job = await api.getJob('id');
+  assert.equal(job.status, 'failed');
+  assert.match(job.error, /проверка человеком/);
+  assert.equal(job.result, undefined);
+});

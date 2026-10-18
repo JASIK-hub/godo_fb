@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Config } from './config';
 import type { Analysis } from './ml';
 
-export type FailureCode = 'ML_UNAVAILABLE' | 'ML_INVALID_RESPONSE' | 'INVALID_VIDEO' | 'DEADLINE_EXCEEDED' | 'PROCESS_INTERRUPTED';
+export type FailureCode = 'ML_INCONCLUSIVE' | 'ML_UNAVAILABLE' | 'ML_INVALID_RESPONSE' | 'INVALID_VIDEO' | 'DEADLINE_EXCEEDED' | 'PROCESS_INTERRUPTED';
 export type Job = { job_id: string } & ({ status: 'processing' } | ({ status: 'done' } & Analysis) |
   { status: 'failed'; error: { code: FailureCode; message: string } });
 export type Record = { id: string; owner: string; file: string; mime: string; created: number; deadline: number; expires: number; job: Job };
