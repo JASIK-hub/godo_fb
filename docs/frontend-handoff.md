@@ -1,14 +1,18 @@
 # Подключение frontend к серверным маршрутам сайта
 
-Frontend — React/Vite. Backend — NestJS с отдельными точками входа для Node/Docker и HTTP Function.
+Frontend — React/Vite. Backend — NestJS с точкой запуска src/main.ts.
 
 По [документации Vercel](https://vercel.com/docs/functions/limitations), проверенной 17.10.2026, тело запроса/ответа Function ограничено 4,5 МБ. MOV около 29 МБ получит 413 FUNCTION_PAYLOAD_TOO_LARGE. Увеличение лимита парсера этого не исправляет.
 
 Для загрузки видео около 29 МБ frontend должен обращаться к постоянному backend без Vercel Function на пути загрузки.
 
-При Root Directory `backend` Vercel загружает `src/app.ts`. В нём теперь есть `export default handler(req, res)`: он лениво создаёт NestJS через `createApp()`, вызывает `app.init()` и передаёт запрос Express-адаптеру. Параллельные запросы разделяют одну инициализацию. Ошибка инициализации возвращает безопасный 503 без env и секретов. Отдельный запуск через `src/main.ts` / `node dist/main.js` сохранён.
+Причина Invalid export: детектор NestJS в Vercel ищет прямой импорт `@nestjs/core` в файле точки входа. Раньше `src/main.ts` импортировал только локальные модули; `src/app.ts` импортировал NestFactory, поэтому выбирался как entrypoint, хотя лишь экспортировал фабрику и не вызывал listen. Root Directory задаёт каталог поиска, а не точку запуска.
 
-Это исправляет отсутствующий default export, но не адаптирует хранилище и worker под serverless: нужны доступный для записи DATA_DIR, FFmpeg/FFprobe и действующая конфигурация ML; локальный SQLite и фоновый worker не гарантируют сохранность заданий между экземплярами Function. `/tmp` является временным хранилищем, а не постоянным томом. Ограничение тела запроса 4,5 МБ сохраняется. Исправление экспорта проверено локально, деплой на Vercel не проверен.
+Handler и общий HTTP-ответ 503 удалены. В `src/main.ts` добавлен прямой импорт `@nestjs/core`. `backend/vercel.json` задаёт `framework: nestjs`, `buildCommand: npm run build`, `outputDirectory: dist`. Детектор выбирает `dist/main.js`, который вызывает createApp → app.listen. Ошибки инициализации больше не подменяются ответом handler.
+
+Основание: [код детектора NestJS](https://github.com/vercel/vercel/blob/main/packages/nestjs/src/build.ts) и [выбор entrypoint из outputDirectory](https://github.com/vercel/vercel/blob/main/packages/build-utils/src/generate-node-builder-functions.ts). Выбор main и запуск проверены локально; успешный production deployment не подтверждён.
+
+Это не адаптирует хранилище и worker под serverless: нужны доступный для записи DATA_DIR, FFmpeg/FFprobe и действующая конфигурация ML. Локальный SQLite и фоновый worker не гарантируют сохранность заданий между экземплярами Function. `/tmp` — временное хранилище, не постоянный том. Ограничение тела запроса 4,5 МБ сохраняется.
 
 Для backend Root Directory остаётся `backend`, build — `npm run build`; frontend публикуется отдельным проектом. `JURY_API_KEY` хранится только в серверном env.
 

@@ -13,7 +13,7 @@ services:
       UI_ORIGIN: ${UI_ORIGIN:?Set public HTTPS origin}
       ML_STUB_ENABLED: "false"
       ML_SERVICE_URL: ${ML_SERVICE_URL:-http://ml:8000/analyze}
-      ML_HEALTH_URL: ${ML_HEALTH_URL:-http://ml:8000/health/ready}
+      ML_HEALTH_URL: ${ML_HEALTH_URL:-http://ml:8000/health}
       ML_ALLOWED_HOSTS: ml
       ML_API_KEY: ${ML_API_KEY:-}
       DATA_DIR: /data

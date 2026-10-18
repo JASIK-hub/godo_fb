@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { readdir, stat, unlink } from 'node:fs/promises';
 import { Config } from './config';
 import { Store, Record, FailureCode } from './store';
-import { Media } from './media';
+import { Media, MediaError } from './media';
 import { MlClient, MlError } from './ml';
 import { Jobs } from './jobs';
 
@@ -63,7 +63,10 @@ export class Worker implements OnModuleInit, OnModuleDestroy {
       if (this.store.get(row.id)?.job.status !== 'processing') return;
       const code: FailureCode = this.stopping ? 'PROCESS_INTERRUPTED' : signal.aborted ? 'DEADLINE_EXCEEDED' :
         decoding ? 'INVALID_VIDEO' : error instanceof MlError ? error.code : 'ML_UNAVAILABLE';
-      this.fail(row, code, code === 'INVALID_VIDEO' ? 'Video cannot be decoded or exceeds configured duration' : 'Video analysis failed');
+      const message = code === 'INVALID_VIDEO' ?
+        (error instanceof MediaError ? error.message : 'Unexpected video validation failure on the backend') : 'Video analysis failed';
+      this.logger.warn(`Job ${row.id} failed (${code}): ${message}`);
+      this.fail(row, code, message);
     }
   }
   private cleanup() {

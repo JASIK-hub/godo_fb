@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { openAsBlob } from 'node:fs';
+import { setTimeout as delay } from 'node:timers/promises';
 import { Config } from './config';
 
 export interface Violation { code: string; message: string; timestamp_seconds: number }
@@ -18,30 +19,42 @@ export class MlClient {
       return { verdict: 'fail', violations: [{ code: 'DEMO_ONLY', message: 'Synthetic demo violation; no ML analysis performed', timestamp_seconds: 0 }], source: 'stub' };
     }
     try {
+      const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(Math.max(1,
+        Math.min(this.config.timeout, deadline - Date.now() - this.config.deadlineMargin)))]);
+      const headers = { ...(this.config.mlKey ? { 'X-API-Key': this.config.mlKey } : {}),
+        'X-Job-Id': jobId, 'X-Deadline-At': new Date(deadline).toISOString() };
       const form = new FormData();
       form.append('file', await openAsBlob(path, { type: mime }), 'video');
       const response = await fetch(this.config.mlUrl!, {
         method: 'POST', body: form, redirect: 'error',
-        headers: { ...(this.config.mlKey ? { 'X-API-Key': this.config.mlKey } : {}),
-          'X-Job-Id': jobId, 'X-Deadline-At': new Date(deadline).toISOString() },
-        signal: AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, Math.min(this.config.timeout, deadline - Date.now() - this.config.deadlineMargin)))]),
+        headers, signal: requestSignal,
       });
-      if (!response.ok) { await response.body?.cancel(); throw new MlError('ML_UNAVAILABLE'); }
-      // Bound ML response memory even when Content-Length is missing or incorrect.
-      const reader = response.body?.getReader();
-      if (!reader) throw new MlError('ML_INVALID_RESPONSE');
-      const chunks: Uint8Array[] = [];
-      let length = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        length += value.length;
-        if (length > 1024 * 1024) { await reader.cancel(); throw new MlError('ML_INVALID_RESPONSE'); }
-        chunks.push(value);
+      let data = await this.readResponse(response);
+      if (data?.job_id !== undefined) {
+        const remoteId = data.job_id;
+        if (typeof remoteId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(remoteId)) {
+          throw new MlError('ML_INVALID_RESPONSE');
+        }
+        // Resolve against the configured inference endpoint, never a URL supplied by ML.
+        const jobsUrl = new URL(this.config.mlUrl!);
+        jobsUrl.pathname = jobsUrl.pathname.replace(/\/[^/]*\/?$/, '') + `/jobs/${remoteId}`;
+        jobsUrl.search = '';
+        while (true) {
+          if (data?.job_id !== remoteId) throw new MlError('ML_INVALID_RESPONSE');
+          if (data.status === 'failed') throw new MlError('ML_UNAVAILABLE');
+          if (data.status === 'completed' || data.status === 'done') {
+            data = data.result ?? data;
+            break;
+          }
+          if (data.status !== undefined && !['queued', 'processing'].includes(data.status)) {
+            throw new MlError('ML_INVALID_RESPONSE');
+          }
+          await delay(2000, undefined, { signal: requestSignal });
+          data = await this.readResponse(await fetch(jobsUrl, {
+            method: 'GET', headers, redirect: 'error', signal: requestSignal,
+          }));
+        }
       }
-      let data: any;
-      try { data = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
-      catch { throw new MlError('ML_INVALID_RESPONSE'); }
       // Internal ML spelling only; public verdict remains pass/fail.
       if (data?.verdict === 'no_violation') data.verdict = 'pass';
       if (!data || !['pass', 'fail'].includes(data.verdict) || !Array.isArray(data.violations) ||
@@ -58,5 +71,23 @@ export class MlClient {
       if (error instanceof MlError) throw error;
       throw new MlError('ML_UNAVAILABLE');
     }
+  }
+
+  private async readResponse(response: Response): Promise<any> {
+    if (!response.ok) { await response.body?.cancel(); throw new MlError('ML_UNAVAILABLE'); }
+    // Bound every response, including polling responses, to 1 MiB.
+    const reader = response.body?.getReader();
+    if (!reader) throw new MlError('ML_INVALID_RESPONSE');
+    const chunks: Uint8Array[] = [];
+    let length = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.length;
+      if (length > 1024 * 1024) { await reader.cancel(); throw new MlError('ML_INVALID_RESPONSE'); }
+      chunks.push(value);
+    }
+    try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+    catch { throw new MlError('ML_INVALID_RESPONSE'); }
   }
 }
