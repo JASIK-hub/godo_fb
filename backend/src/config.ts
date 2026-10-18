@@ -13,6 +13,7 @@ export class Config {
   readonly mlKey = process.env.ML_API_KEY;
   readonly port = this.integer('PORT', 3000, 65535);
   readonly timeout = this.integer('ML_TIMEOUT_MS', 180000, 290000);
+  readonly mlPollInterval = this.integer('ML_POLL_INTERVAL_MS', 1000, 30000);
   readonly deadline = this.integer('JOB_DEADLINE_MS', 300000, 300000);
   readonly deadlineMargin = this.integer('DEADLINE_MARGIN_MS', 5000, 30000);
   readonly mediaTimeout = this.integer('MEDIA_TIMEOUT_MS', 30000, 120000);

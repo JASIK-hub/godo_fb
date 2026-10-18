@@ -61,5 +61,7 @@ export type PublicJob = { job_id: string } & (
   | { status: 'processing' }
   | { status: 'failed'; error: { code: string; message: string } }
   | { status: 'done'; source: 'ml' | 'stub'; verdict: 'pass' | 'fail';
-      violations: { code: string; message: string; timestamp_seconds: number }[] }
+      violations: { code: string; message: string; timestamp_seconds: number; type?: string;
+        evidence_frames?: { timestamp_sec: number; image_base64: string }[];
+        rule?: { title: string; section: string; url: string } }[] }
 );

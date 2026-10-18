@@ -120,7 +120,7 @@ components:
           type: object
           required: [code, message]
           properties:
-            code: { type: string, enum: [ML_UNAVAILABLE, ML_INVALID_RESPONSE, INVALID_VIDEO, DEADLINE_EXCEEDED, PROCESS_INTERRUPTED] }
+            code: { type: string, enum: [ML_UNAVAILABLE, ML_INVALID_RESPONSE, ML_INCONCLUSIVE, INVALID_VIDEO, DEADLINE_EXCEEDED, PROCESS_INTERRUPTED] }
             message: { type: string }
     Violation:
       type: object
@@ -128,8 +128,25 @@ components:
       properties:
         code:
           type: string
-          description: Rule identifier supplied and verified by ML against its regulatory catalog.
+          description: ML rule identifier, or event type when ML did not provide a rule identifier.
         message:
           type: string
           description: ML-provided violation description including its normative source, preserved verbatim.
         timestamp_seconds: { type: number, minimum: 0 }
+        type: { type: string }
+        evidence_frames:
+          type: array
+          maxItems: 3
+          items:
+            type: object
+            required: [timestamp_sec, image_base64]
+            properties:
+              timestamp_sec: { type: number, minimum: 0 }
+              image_base64: { type: string, description: Base64 JPEG without a data URI prefix. }
+        rule:
+          type: object
+          required: [title, section, url]
+          properties:
+            title: { type: string }
+            section: { type: string }
+            url: { type: string, format: uri }

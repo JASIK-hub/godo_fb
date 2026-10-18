@@ -63,10 +63,15 @@ export class Worker implements OnModuleInit, OnModuleDestroy {
       if (this.store.get(row.id)?.job.status !== 'processing') return;
       const code: FailureCode = this.stopping ? 'PROCESS_INTERRUPTED' : signal.aborted ? 'DEADLINE_EXCEEDED' :
         decoding ? 'INVALID_VIDEO' : error instanceof MlError ? error.code : 'ML_UNAVAILABLE';
+<<<<<<< HEAD
       const message = code === 'INVALID_VIDEO' ?
         (error instanceof MediaError ? error.message : 'Unexpected video validation failure on the backend') : 'Video analysis failed';
       this.logger.warn(`Job ${row.id} failed (${code}): ${message}`);
       this.fail(row, code, message);
+=======
+      this.fail(row, code, code === 'INVALID_VIDEO' ? 'Video cannot be decoded or exceeds configured duration' :
+        code === 'ML_INCONCLUSIVE' ? 'Visual evidence is insufficient; human review required' : 'Video analysis failed');
+>>>>>>> d66aa7f091a76c4ea338f953a66a72615e476b57
     }
   }
   private cleanup() {
