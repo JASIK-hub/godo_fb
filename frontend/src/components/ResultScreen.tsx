@@ -1,563 +1,195 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
+import type { Job } from '../api';
 import { config } from '../config';
-import type { DetectedEvent, Job } from '../api';
 
 interface ResultScreenProps {
   job: Job;
-  /** Вернуться к загрузке нового видео. */
+  videoFile: File | null;
   onReset: () => void;
 }
 
-/** URL кадра: абсолютный оставляем, относительный резолвим от apiBaseUrl. */
-function frameSrc(url: string): string {
-  if (url.startsWith('data:image/jpeg;base64,')) return url;
-  return /^https?:\/\//.test(url) ? url : `${config.apiBaseUrl}${url}`;
+function seconds(value: string): number {
+  const parts = value.split(/[–—]/)[0].split('-')[0].trim().split(':').map(Number);
+  return parts.every(Number.isFinite) ? Math.max(0, parts.reduce((sum, n) => sum * 60 + n, 0)) : 0;
 }
 
-/** Начало таймкода в секундах: «00:01:23–…» | «01:23.5» | «83» → число. */
-function parseStartSeconds(timecode: string): number {
-  const start = timecode.split(/[–—]/)[0].split('-')[0].trim();
-  const parts = start.split(':').map((p) => Number.parseFloat(p));
-  if (parts.length === 0 || parts.some(Number.isNaN)) return 0;
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  return parts[0];
+function time(value: number): string {
+  if (!Number.isFinite(value)) return '00:00';
+  const total = Math.max(0, Math.floor(value));
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
-/** Короткая метка для таймлайна: «00:00:12–00:00:19» → «00:12». */
-function shortTimecode(timecode: string): string {
-  const start = timecode.split(/[–—]/)[0].split('-')[0].trim();
-  const parts = start.split(':');
-  if (parts.length >= 2) return parts.slice(-2).join(':');
-  return start;
-}
+const panel = 'bg-surface-container-lowest rounded-xl shadow-sm p-4';
 
-/** Данные модального просмотра кадра. */
-interface FrameModalData {
-  src: string;
-  timecode: string;
-  caption: string;
-}
-
-/** Модальное окно увеличенного просмотра кадра (по Reference_2). */
-function FramePreviewModal({ frame, onClose }: { frame: FrameModalData; onClose: () => void }) {
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-inverse-surface/60 backdrop-blur-xs flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="bg-surface-container-lowest rounded-xl max-w-3xl w-full shadow-xl overflow-hidden flex flex-col">
-        <div className="p-3 bg-surface-container-low flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="material-symbols-outlined text-primary-container text-[20px]">
-              filter_center_focus
-            </span>
-            <span className="font-headline-md text-headline-md text-on-surface truncate">
-              Увеличенный просмотр кадра
-            </span>
-            <span className="font-body-md-tabular text-body-sm px-2 py-0.5 rounded bg-primary-fixed/50 text-primary-container font-semibold shrink-0">
-              {frame.timecode}
-            </span>
-          </div>
-          <button
-            aria-label="Закрыть"
-            className="w-8 h-8 rounded-full flex items-center justify-center text-secondary hover:text-on-surface hover:bg-surface-container-high transition-colors shrink-0"
-            type="button"
-            onClick={onClose}
-          >
-            <span className="material-symbols-outlined text-[20px]">close</span>
-          </button>
-        </div>
-        <div className="relative aspect-video w-full bg-inverse-surface">
-          <img alt={frame.caption} className="w-full h-full object-contain" src={frame.src} />
-        </div>
-        <div className="p-4 flex flex-col gap-1 bg-surface-container-lowest">
-          <h4 className="font-label-md text-label-md text-on-surface uppercase tracking-wide">
-            Аннотация события
-          </h4>
-          <p className="font-body-md text-body-md text-secondary leading-relaxed">{frame.caption}</p>
-        </div>
-        <div className="px-4 py-2 bg-surface-container-low flex justify-end">
-          <button
-            className="px-3 py-1.5 rounded-lg bg-surface-container-lowest hover:bg-surface-container-high text-on-surface font-label-md text-label-md shadow-sm transition-colors"
-            type="button"
-            onClick={onClose}
-          >
-            Закрыть просмотр
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Карточка события в журнале (правая колонка). */
-function EventListItem({
-  event,
-  index,
-  selected,
-  onSelect,
-}: {
-  event: DetectedEvent;
-  index: number;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <div
-      aria-current={selected || undefined}
-      className={`cursor-pointer p-3 rounded-lg flex flex-col gap-1 transition-all relative overflow-hidden ${
-        selected
-          ? 'bg-surface-container-lowest border-l-4 border-l-primary-container shadow-sm ring-1 ring-primary-container/20'
-          : 'bg-surface-container-lowest hover:bg-surface-container-low shadow-sm'
-      }`}
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-    >
-      <div className="flex items-center justify-between gap-1">
-        <span className="inline-flex items-center gap-1 font-label-sm text-label-sm px-2 py-0.5 rounded-full bg-outline-variant/20 text-outline">
-          <span className="w-1.5 h-1.5 rounded-full bg-outline" />
-          <span>Требуется проверка</span>
-        </span>
-        <span
-          className={`font-body-md-tabular text-body-md-tabular ${
-            selected ? 'font-bold text-primary-container' : 'text-secondary font-medium'
-          }`}
-        >
-          {shortTimecode(event.timecode)}
-        </span>
-      </div>
-      <div className="flex flex-col mt-1">
-        <span className="font-headline-md text-[14px] text-on-surface font-semibold">
-          Событие {index + 1} — {event.type}
-        </span>
-        <span className="font-body-md text-body-md text-secondary line-clamp-2">
-          {event.description}
-        </span>
-      </div>
-      <div className="mt-1 flex items-center justify-between text-[11px] text-secondary">
-        <span className="flex items-center gap-1">
-          <span className="material-symbols-outlined text-[13px]">
-            {event.frames.length > 0 ? 'photo_camera' : 'schedule'}
-          </span>
-          Кадров: {event.frames.length}
-        </span>
-        <span className="font-body-md-tabular">{shortTimecode(event.timecode)}</span>
-      </div>
-    </div>
-  );
-}
-
-/** Экран результата — «рабочий стол контролёра» по Reference_2. */
-export function ResultScreen({ job, onReset }: ResultScreenProps) {
+export function ResultScreen({ job, videoFile, onReset }: ResultScreenProps) {
   const events = job.result?.events ?? [];
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const [modal, setModal] = useState<FrameModalData | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string>();
+  const [duration, setDuration] = useState(0);
+  const [playbackError, setPlaybackError] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const pendingSeek = useRef<number | null>(null);
+  const frameDialog = useRef<HTMLDialogElement>(null);
+  const [framePreview, setFramePreview] = useState<string>();
+  const selected = events[selectedIdx];
+  const noViolations = events.length === 0;
 
-  const selected: DetectedEvent | undefined = events[selectedIdx] ?? events[0];
-
-  // Горячие клавиши: [1..9] — выбор события, Escape — закрыть модал.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setModal(null);
-        return;
-      }
-      const n = Number.parseInt(e.key, 10);
-      if (!Number.isNaN(n) && n >= 1 && n <= events.length) {
-        setSelectedIdx(n - 1);
-      }
+    if (!videoFile) return;
+    const url = URL.createObjectURL(videoFile);
+    setVideoUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [videoFile]);
+
+  function selectEvent(index: number) {
+    setSelectedIdx(index);
+    const target = seconds(events[index].timecode);
+    const video = videoRef.current;
+    if (video && video.readyState >= 1) {
+      video.currentTime = Math.min(target, Number.isFinite(video.duration) ? video.duration : target);
+    } else pendingSeek.current = target;
+  }
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey ||
+          (event.target instanceof HTMLElement && (event.target.isContentEditable ||
+            ['INPUT', 'TEXTAREA', 'SELECT', 'VIDEO'].includes(event.target.tagName)))) return;
+      const index = Number(event.key) - 1;
+      if (/^[1-9]$/.test(event.key) && index < events.length) selectEvent(index);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [events.length]);
-
-  // Сброс выбора, если список событий изменился.
-  useEffect(() => {
-    if (selectedIdx >= events.length) setSelectedIdx(0);
-  }, [events.length, selectedIdx]);
-
-  const noViolations = events.length === 0;
-
-  /** Позиции маркеров на таймлайне относительно последнего события. */
-  const timeline = noViolations
-    ? []
-    : (() => {
-        const seconds = events.map((ev) => parseStartSeconds(ev.timecode));
-        const scale = Math.max(...seconds, 1) * 1.1;
-        return events.map((ev, i) => ({
-          pct: Math.min(96, (seconds[i] / scale) * 100),
-          label: shortTimecode(ev.timecode),
-          index: i,
-        }));
-      })();
-
-  if (noViolations) {
-    return (
-      <div className="w-full max-w-4xl mx-auto space-y-6">
-        <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="inline-flex items-center gap-1 px-3 py-1 bg-surface-container-high text-on-surface rounded-full font-label-md text-label-md">
-            <span className="w-2 h-2 rounded-full bg-tertiary-container" />
-            <span>По проверенным критериям нарушения не обнаружены</span>
-          </div>
-          <button
-            className="inline-flex items-center gap-1 px-3 py-2 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface rounded-lg font-label-md text-label-md transition-colors shadow-sm"
-            type="button"
-            onClick={onReset}
-          >
-            <span className="material-symbols-outlined text-[16px] text-secondary">file_upload</span>
-            <span>Проверить другое видео</span>
-          </button>
-        </div>
-        <div className="bg-surface-container-low px-4 py-3 rounded-lg flex items-center gap-3">
-          <span className="material-symbols-outlined text-secondary text-[20px] shrink-0">info</span>
-          <span className="font-body-md text-body-md text-secondary">
-            Результат помогает провести проверку и не является окончательным заключением.
-          </span>
-        </div>
-      </div>
-    );
-  }
+  });
 
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-4">
-      {/* Баннер результата */}
-      <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3 min-w-0">
-          <div className="inline-flex items-center gap-1 px-3 py-1 bg-surface-container-high text-on-surface rounded-full font-label-md text-label-md">
-            <span className="w-2 h-2 rounded-full bg-primary-container animate-pulse" />
-            <span className="truncate">{job.result?.verdict || 'Обнаружены события'}</span>
-          </div>
-          <div className="inline-flex items-center gap-1 px-3 py-1 bg-primary-fixed/50 text-primary-container rounded-full font-label-md text-label-md">
-            <span className="material-symbols-outlined text-[15px]">flag</span>
-            <span>{events.length} событий требуют внимания</span>
-          </div>
-          <div className="flex items-center gap-1 text-secondary font-body-sm text-body-sm min-w-0">
-            <span className="material-symbols-outlined text-[16px] text-secondary">schedule</span>
-            <span className="font-body-md-tabular text-body-md-tabular text-on-surface">
-              задача {job.job_id}
-            </span>
-          </div>
+    <div className="w-full space-y-4">
+      <div className={`${panel} flex flex-col xl:flex-row xl:items-center justify-between gap-3`}>
+        <div className="flex flex-wrap items-center gap-3 min-w-0">
+          <span className="inline-flex items-center gap-2 px-3 py-1 bg-surface-container-high rounded-full text-label-md">
+            <span className={`w-2 h-2 rounded-full ${noViolations ? 'bg-tertiary-container' : 'bg-primary-container'}`} />
+            {job.result?.verdict}
+          </span>
+          <span className="px-3 py-1 bg-primary-fixed/50 text-primary-container rounded-full text-label-md">
+            {noViolations ? 'Событий для проверки нет' : `Событий для проверки: ${events.length}`}
+          </span>
+          <span className="text-body-sm text-secondary break-all">{videoFile?.name ?? 'Видео анализа'}</span>
         </div>
-        <button
-          className="inline-flex items-center gap-1 px-3 py-2 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface rounded-lg font-label-md text-label-md transition-colors shadow-sm shrink-0 self-end md:self-auto"
-          type="button"
-          onClick={onReset}
-        >
-          <span className="material-symbols-outlined text-[16px] text-secondary">file_upload</span>
-          <span>Проверить другое видео</span>
+        <button type="button" onClick={onReset} className="flex items-center justify-center gap-1 px-3 py-2 rounded-lg hover:bg-surface-container-low text-label-md shrink-0">
+          <span className="material-symbols-outlined text-[18px]">file_upload</span>Проверить другое видео
         </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* ЛЕВАЯ КОЛОНКА */}
-        <div className="lg:col-span-8 flex flex-col gap-4">
-          {/* Просмотр выбранного события */}
-          {selected && (
-            <div className="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden flex flex-col">
-              <div className="px-4 py-2 bg-surface-container-low flex items-center justify-between">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="w-2.5 h-2.5 rounded-full bg-error animate-pulse" />
-                  <span className="font-label-md text-label-md text-on-surface uppercase tracking-wide truncate">
-                    Событие {selectedIdx + 1} — {selected.type}
-                  </span>
-                </div>
-                <span className="hidden sm:inline-flex items-center gap-1 font-body-sm text-body-sm text-secondary shrink-0">
-                  <span className="material-symbols-outlined text-[14px]">photo_camera</span>
-                  Кадров: {selected.frames.length}
-                </span>
-              </div>
-
-              {/* Основной кадр */}
-              <div className="relative w-full aspect-video bg-inverse-surface flex items-center justify-center overflow-hidden">
-                {selected.frames.length > 0 ? (
-                  <img
-                    alt={`Кадр события ${selected.type} на ${selected.timecode}`}
-                    className="w-full h-full object-contain select-none"
-                    src={frameSrc(selected.frames[0])}
-                  />
-                ) : (
-                  <span className="material-symbols-outlined text-inverse-on-surface/50 text-[48px]">
-                    image_not_supported
-                  </span>
-                )}
-                <div className="absolute top-3 left-3 bg-inverse-surface/80 text-inverse-on-surface font-body-md-tabular text-body-sm px-2 py-1 rounded backdrop-blur-sm pointer-events-none">
-                  <span className="text-primary-fixed-dim font-bold">ФАКТ</span>{' '}
-                  {selected.timecode}
-                </div>
-              </div>
-
-              {/* Таймлайн с маркерами событий */}
-              <div className="px-4 pt-3 pb-1">
-                <div className="relative w-full h-8 flex items-center select-none">
-                  <div className="w-full h-2 rounded-full bg-surface-container-highest relative">
-                    <div
-                      className="absolute top-0 left-0 h-full bg-primary-container rounded-full transition-all duration-300"
-                      style={{
-                        width: `${timeline.find((t) => t.index === selectedIdx)?.pct ?? 0}%`,
-                      }}
-                    />
-                    {timeline.map((t) => (
-                      <div
-                        className="absolute -top-1.5 -ml-2 w-4 h-6 flex flex-col items-center cursor-pointer"
-                        key={t.index}
-                        style={{ left: `${t.pct}%` }}
-                        title={`Событие ${t.index + 1} — ${events[t.index].description}`}
-                        onClick={() => setSelectedIdx(t.index)}
-                      >
-                        <div
-                          className={`w-3.5 h-3.5 rounded-full shadow-md flex items-center justify-center ${
-                            t.index === selectedIdx
-                              ? 'bg-primary-container ring-2 ring-primary-fixed ring-offset-1'
-                              : 'bg-outline'
-                          }`}
-                        >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              t.index === selectedIdx ? 'bg-on-primary' : 'bg-surface'
-                            }`}
-                          />
-                        </div>
-                        <span
-                          className={`text-[9px] font-body-md-tabular mt-0.5 ${
-                            t.index === selectedIdx
-                              ? 'font-bold text-primary-container'
-                              : 'text-secondary'
-                          }`}
-                        >
-                          {t.label}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+        <div className="lg:col-span-8 min-w-0 flex flex-col gap-4">
+          <section className="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden" aria-label="Просмотр видео">
+            <div className="px-4 py-3 bg-surface-container-low flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-label-md uppercase tracking-wide flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary-container text-[20px]">videocam</span>Исходная видеозапись
+              </h2>
+              <span className="text-body-sm text-secondary">Длительность: {duration > 0 ? time(duration) : '—'}</span>
+            </div>
+            <div className="aspect-video bg-inverse-surface flex items-center justify-center">
+              {videoUrl ? <video ref={videoRef} src={videoUrl} controls playsInline preload="metadata"
+                aria-label={`Видеозапись ${videoFile?.name ?? ''}`} className="w-full h-full object-contain"
+                onError={() => setPlaybackError(true)}
+                onLoadedMetadata={event => {
+                  const video = event.currentTarget;
+                  setDuration(Number.isFinite(video.duration) ? video.duration : 0);
+                  setPlaybackError(false);
+                  if (pendingSeek.current !== null) {
+                    video.currentTime = Math.min(pendingSeek.current, video.duration);
+                    pendingSeek.current = null;
+                  }
+                }} /> : <p className="text-inverse-on-surface text-body-md">Исходное видео недоступно. Загрузите запись повторно.</p>}
+            </div>
+            {playbackError && <p role="alert" className="p-4 text-body-md text-error">Браузер не может воспроизвести кодек этой записи. Для просмотра используйте MP4 с видео H.264.</p>}
+            <div className="px-4 pt-3 pb-5">
+              <div className="flex justify-between text-body-sm text-secondary mb-3"><span>Метки событий</span><span>{noViolations ? 'Нарушений не обнаружено' : 'Нажмите на метку для перехода'}</span></div>
+              <div className="relative h-2 rounded-full bg-surface-container-highest mx-2">
+                {duration > 0 && events.map((event, index) => <button key={index} type="button"
+                  aria-label={`Событие ${index + 1}, ${time(seconds(event.timecode))}`}
+                  title={`${time(seconds(event.timecode))} — ${event.description}`}
+                  onClick={() => selectEvent(index)} style={{ left: `${Math.min(100, seconds(event.timecode) / duration * 100)}%` }}
+                  className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 rounded-full border-2 border-surface ${selectedIdx === index ? 'bg-primary-container ring-2 ring-primary-fixed' : 'bg-outline'}`} />)}
               </div>
             </div>
-          )}
+          </section>
 
-          {/* Кадры-доказательства выбранного события */}
-          {selected && selected.frames.length > 0 && (
-            <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col gap-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-primary-container text-[20px]">
-                    photo_library
-                  </span>
-                  <h3 className="font-headline-md text-headline-md text-on-surface tracking-tight">
-                    Кадры-доказательства ({selected.frames.length})
-                  </h3>
-                </div>
-                <span className="font-body-sm text-body-sm text-secondary flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[15px]">touch_app</span>
-                  Нажмите на кадр для увеличения
-                </span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {selected.frames.map((url, i) => (
-                  <div
-                    className="group cursor-pointer rounded-lg bg-surface-container-low overflow-hidden hover:bg-surface-container-high transition-all shadow-sm"
-                    key={i}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() =>
-                      setModal({
-                        src: frameSrc(url),
-                        timecode: selected.timecode,
-                        caption: selected.description,
-                      })
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        setModal({
-                          src: frameSrc(url),
-                          timecode: selected.timecode,
-                          caption: selected.description,
-                        });
-                      }
-                    }}
-                  >
-                    <div className="relative aspect-video w-full overflow-hidden bg-inverse-surface">
-                      <img
-                        alt={`Кадр ${i + 1} события ${selected.type}`}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        loading="lazy"
-                        src={frameSrc(url)}
-                      />
-                      <div className="absolute top-2 left-2 bg-inverse-surface/80 text-inverse-on-surface font-body-md-tabular text-[11px] px-1.5 py-0.5 rounded backdrop-blur-xs">
-                        {shortTimecode(selected.timecode)}
-                      </div>
-                      <div className="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                        <span className="material-symbols-outlined text-on-primary text-[28px] drop-shadow-md">
-                          zoom_in
-                        </span>
-                      </div>
-                    </div>
-                    <div className="p-2">
-                      <span className="font-label-md text-label-md text-on-surface">
-                        Кадр {i + 1}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          <section className={panel}>
+            <h3 className="text-headline-md flex items-center gap-2"><span className="material-symbols-outlined text-primary-container">photo_library</span>Кадры-доказательства</h3>
+            <p className="mt-2 text-body-md text-secondary">{noViolations
+              ? 'Нарушений не обнаружено — кадры событий отсутствуют. Видеозапись доступна для просмотра выше.'
+              : 'Просмотрите момент выбранного события в исходной видеозаписи.'}</p>
+            {!!selected?.frames.length && <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+              {selected.frames.map((frame, index) => {
+                const src = /^(https?:\/\/|data:image\/)/.test(frame) ? frame : `${config.apiBaseUrl}${frame}`;
+                return <button key={index} type="button" onClick={() => { setFramePreview(src); frameDialog.current?.showModal(); }} className="text-left rounded-lg overflow-hidden bg-surface-container-low hover:bg-surface-container-high">
+                  <img src={src} alt={`Кадр ${index + 1} выбранного события`} loading="lazy" className="aspect-video w-full object-cover" />
+                  <span className="block p-2 text-body-sm">Кадр {index + 1} · Открыть в полном размере</span>
+                </button>;
+              })}
+            </div>}
+          </section>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <section className={panel}>
+              <h3 className="text-headline-md flex items-center gap-2"><span className="material-symbols-outlined text-primary-container">visibility</span>Что видно на видео</h3>
+              <p className="mt-2 text-body-md leading-relaxed">{selected?.description ?? 'По результатам анализа признаков нарушений не обнаружено. Запись можно просмотреть целиком.'}</p>
+            </section>
+            <section className={panel}>
+              <h3 className="text-headline-md flex items-center gap-2"><span className="material-symbols-outlined text-outline">help_outline</span>{noViolations ? 'Результат проверки' : 'Почему требуется проверка'}</h3>
+              <p className="mt-2 text-body-md leading-relaxed">{noViolations ? 'Анализ завершён. События, требующие внимания, не выявлены.' : 'Анализ отметил возможное нарушение. Сопоставьте описание события с указанным моментом видеозаписи.'}</p>
+            </section>
+          </div>
+          <section className={`${panel} flex gap-3 items-start`}>
+            <span className="material-symbols-outlined text-primary-container p-2 rounded-lg bg-surface-container-high">gavel</span>
+            <div><h3 className="text-headline-md">Нормативный источник</h3>
+              <p className="mt-1 text-body-md text-secondary">{noViolations ? 'События, требующие нормативного обоснования, отсутствуют.' : selected?.source?.document || 'Сведения об источнике приведены в описании события, если они переданы анализом.'}</p>
+              {selected?.source?.clause && <p className="text-body-sm text-secondary">{selected.source.clause}</p>}
+              {selected?.source?.url && /^https?:\/\//.test(selected.source.url) && <a href={selected.source.url} target="_blank" rel="noreferrer" className="text-primary-container underline text-body-md">Открыть источник</a>}
             </div>
-          )}
-
-          {/* Описание + нормативный источник */}
-          {selected && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col gap-2">
-                <div className="flex items-center gap-1 text-on-surface font-headline-md text-headline-md">
-                  <span className="material-symbols-outlined text-primary-container text-[20px]">
-                    visibility
-                  </span>
-                  <span>Что видно на видео</span>
-                </div>
-                <p className="font-body-md text-body-md text-on-surface leading-relaxed">
-                  {selected.description}
-                </p>
-              </div>
-              <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-start gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center shrink-0 text-primary-container">
-                    <span className="material-symbols-outlined text-[24px]">gavel</span>
-                  </div>
-                  <div className="flex flex-col gap-0.5 min-w-0">
-                    <div className="flex items-center gap-1 flex-wrap">
-                      <span className="font-label-md text-label-md text-on-surface font-semibold">
-                        {selected.source?.document || 'Источник указан в описании нарушения'}
-                      </span>
-                      {selected.source?.clause && (
-                        <span className="font-label-sm text-[10px] uppercase tracking-wide bg-surface-container-high text-secondary px-1.5 py-0.5 rounded">
-                          {selected.source.clause}
-                        </span>
-                      )}
-                    </div>
-                    <p className="font-body-md text-body-md text-secondary">
-                      Нормативный источник события {selectedIdx + 1}
-                    </p>
-                    {selected.source?.url && (
-                      <a
-                        className="inline-flex items-center gap-1 font-label-md text-label-md text-primary-container hover:text-primary hover:underline transition-colors"
-                        href={selected.source.url}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        <span>Открыть источник</span>
-                        <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Спокойное примечание */}
-          <div className="bg-surface-container-low px-4 py-3 rounded-lg flex items-center gap-3">
-            <span className="material-symbols-outlined text-secondary text-[20px] shrink-0">info</span>
-            <span className="font-body-md text-body-md text-secondary">
-              Результат помогает провести проверку и не является окончательным заключением.
-            </span>
+          </section>
+          <div className="bg-surface-container-low px-4 py-3 rounded-lg flex items-center gap-3 text-secondary text-body-md">
+            <span className="material-symbols-outlined">info</span>Результат помогает провести проверку и не является окончательным заключением.
           </div>
         </div>
 
-        {/* ПРАВАЯ КОЛОНКА */}
-        <div className="lg:col-span-4 flex flex-col gap-4">
-          {/* Журнал событий */}
-          <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1">
-                <span className="material-symbols-outlined text-primary-container text-[20px]">
-                  format_list_bulleted
-                </span>
-                <h2 className="font-headline-md text-headline-md text-on-surface">Журнал событий</h2>
-              </div>
-              <span className="font-label-sm text-label-sm text-secondary bg-surface-container px-2 py-0.5 rounded-full font-body-md-tabular">
-                Всего: {events.length}
-              </span>
+        <aside className="lg:col-span-4 min-w-0 flex flex-col gap-4">
+          <section className={panel}>
+            <div className="flex items-center justify-between gap-2"><h2 className="text-headline-md">Журнал событий</h2><span className="text-label-sm bg-surface-container rounded-full px-2 py-1">Всего: {events.length}</span></div>
+            <p className="mt-2 mb-4 text-body-sm text-secondary">{noViolations ? 'Анализ завершён. Событий для проверки нет.' : 'Выберите событие для перехода к моменту на видео и просмотра описания.'}</p>
+            {noViolations ? <div className="p-6 rounded-lg bg-surface-container-low text-center">
+              <span className="material-symbols-outlined text-tertiary-container text-[36px]">task_alt</span>
+              <p className="mt-2 text-headline-md">Нарушений не обнаружено</p><p className="mt-1 text-body-sm text-secondary">Вы можете самостоятельно просмотреть запись.</p>
+            </div> : <div className="flex flex-col gap-2">{events.map((event, index) => <button key={index} type="button" onClick={() => selectEvent(index)} aria-pressed={selectedIdx === index}
+              className={`w-full text-left p-3 rounded-lg border-l-4 ${selectedIdx === index ? 'border-primary-container bg-surface-container-low ring-1 ring-primary-container/20' : 'border-transparent hover:bg-surface-container-low'}`}>
+              <div className="flex justify-between gap-2 text-label-sm"><span className="text-outline">Требуется проверка</span><span className="text-primary-container">{time(seconds(event.timecode))}</span></div>
+              <p className="mt-2 text-headline-md">Событие {index + 1}</p><p className="text-body-md text-secondary">{event.description}</p>
+            </button>)}</div>}
+            <div className="mt-4 p-3 rounded-lg bg-surface-container-low"><h3 className="text-label-md">Быстрая навигация</h3>
+              {noViolations ? <p className="mt-2 text-body-sm text-secondary">Используйте шкалу плеера для перехода к любому моменту записи.</p> : <>
+                <p className="mt-1 text-body-sm text-secondary">Клавиши 1–{Math.min(events.length, 9)}</p>
+                <div className="grid grid-cols-3 gap-1 mt-2">{events.slice(0, 9).map((event, index) => <button key={index} type="button" onClick={() => selectEvent(index)}
+                  className={`rounded px-2 py-2 text-label-sm ${index === selectedIdx ? 'bg-primary-container text-on-primary' : 'bg-surface-container-lowest hover:bg-surface-container-high'}`}>№{index + 1} ({time(seconds(event.timecode))})</button>)}</div>
+              </>}
             </div>
-            <p className="font-body-sm text-body-sm text-secondary">
-              Выберите событие для синхронизации кадров, описания и нормативной базы.
-              Горячие клавиши: [1]…[{Math.min(events.length, 9)}]
-            </p>
-            <div className="flex flex-col gap-2">
-              {events.map((event, i) => (
-                <EventListItem
-                  event={event}
-                  index={i}
-                  key={i}
-                  selected={i === selectedIdx}
-                  onSelect={() => setSelectedIdx(i)}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Быстрая навигация */}
-          <div className="bg-surface-container-low p-3 rounded-lg flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-label-md text-label-md text-on-surface">Быстрая навигация</span>
-              <span className="font-label-sm text-[11px] text-secondary font-body-md-tabular">
-                Клавиши 1–{Math.min(events.length, 9)}
-              </span>
-            </div>
-            <div className="grid grid-cols-3 gap-1">
-              {events.slice(0, 9).map((event, i) => (
-                <button
-                  className={`py-1.5 px-2 rounded text-center font-label-md text-label-md shadow-sm transition-colors ${
-                    i === selectedIdx
-                      ? 'bg-primary-container text-on-primary'
-                      : 'bg-surface-container-lowest hover:bg-surface-container-high text-on-surface'
-                  }`}
-                  key={i}
-                  type="button"
-                  onClick={() => setSelectedIdx(i)}
-                >
-                  №{i + 1} ({shortTimecode(event.timecode)})
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Параметры задачи */}
-          <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col gap-2">
-            <h3 className="font-headline-md text-headline-md text-on-surface">Параметры задачи</h3>
-            <dl className="flex flex-col gap-1 text-body-sm font-body-sm">
-              <div className="flex justify-between py-1 bg-surface-container-low px-2 rounded">
-                <dt className="text-secondary">Идентификатор:</dt>
-                <dd className="font-body-md-tabular text-on-surface truncate max-w-[60%]">
-                  {job.job_id}
-                </dd>
-              </div>
-              <div className="flex justify-between py-1 px-2">
-                <dt className="text-secondary">Вердикт:</dt>
-                <dd className="font-medium text-primary-container text-right">
-                  {job.result?.verdict || '—'}
-                </dd>
-              </div>
-              <div className="flex justify-between py-1 bg-surface-container-low px-2 rounded">
-                <dt className="text-secondary">Событий найдено:</dt>
-                <dd className="font-body-md-tabular text-on-surface">{events.length}</dd>
-              </div>
+          </section>
+          <section className={panel}><h3 className="text-headline-md mb-3">Параметры записи</h3>
+            <dl className="text-body-sm space-y-2">
+              <div className="bg-surface-container-low rounded p-2"><dt className="text-secondary">Файл</dt><dd className="break-all mt-1">{videoFile?.name ?? '—'}</dd></div>
+              <div className="flex justify-between gap-2 px-2"><dt className="text-secondary">Длительность</dt><dd>{duration > 0 ? time(duration) : '—'}</dd></div>
+              <div className="bg-surface-container-low rounded p-2 flex justify-between gap-2"><dt className="text-secondary">Событий найдено</dt><dd>{events.length}</dd></div>
+              <div className="px-2"><dt className="text-secondary">Вердикт</dt><dd className="mt-1">{job.result?.verdict}</dd></div>
             </dl>
-          </div>
-        </div>
+          </section>
+        </aside>
       </div>
-
-      {modal && <FramePreviewModal frame={modal} onClose={() => setModal(null)} />}
+      <dialog ref={frameDialog} aria-label="Увеличенный просмотр кадра" className="m-auto p-0 rounded-xl bg-surface-container-lowest text-on-surface w-full max-w-3xl max-h-[90vh] overflow-auto backdrop:bg-inverse-surface/70">
+        <div className="p-3 flex justify-between items-center gap-3"><h2 className="text-headline-md">Кадр события</h2>
+          <button type="button" onClick={() => frameDialog.current?.close()} className="rounded-lg px-3 py-2 hover:bg-surface-container-low">Закрыть</button>
+        </div>
+        {framePreview && <img src={framePreview} alt="Увеличенный кадр выбранного события" className="w-full object-contain" />}
+      </dialog>
     </div>
   );
 }

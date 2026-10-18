@@ -14,6 +14,7 @@ export default function App() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
 
   const { job, phase, error } = useJobPolling(jobId);
 
@@ -23,6 +24,7 @@ export default function App() {
     setUploadError(null);
     try {
       const { job_id } = await analyzeVideo(file);
+      setVideoFile(file);
       setJobId(job_id);
       setScreen('processing');
     } catch (err) {
@@ -37,6 +39,7 @@ export default function App() {
   const handleReset = () => {
     // Обнуляем jobId — хук прекратит опрос (уход «со страницы» задачи).
     setJobId(null);
+    setVideoFile(null);
     setUploadError(null);
     setScreen('upload');
   };
@@ -55,7 +58,7 @@ export default function App() {
           {screen === 'processing' && !showResult && (
             <ProcessingScreen job={job} phase={phase} error={error} onReset={handleReset} />
           )}
-          {showResult && <ResultScreen job={job} onReset={handleReset} />}
+          {showResult && <ResultScreen key={job.job_id} job={job} videoFile={videoFile} onReset={handleReset} />}
         </div>
       </main>
       <AppFooter />
