@@ -107,6 +107,17 @@
   --text-headline-xl--font-weight: 700;
 }
 
+@keyframes ml-progress-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(286%); }
+}
+.ml-progress-indeterminate {
+  animation: ml-progress-slide 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-progress-indeterminate { animation: none; width: 100% !important; opacity: 0.6; }
+}
+
 @layer base {
   html,
   body {

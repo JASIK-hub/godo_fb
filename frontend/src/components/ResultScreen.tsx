@@ -16,7 +16,8 @@ function seconds(value: string): number {
 function time(value: number): string {
   if (!Number.isFinite(value)) return '00:00';
   const total = Math.max(0, Math.floor(value));
-  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+  const fraction = Math.floor((Math.max(0, value) - total) * 10 + 0.00001);
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}.${fraction}`;
 }
 
 const panel = 'bg-surface-container-lowest rounded-xl shadow-sm p-4';
@@ -26,6 +27,7 @@ export function ResultScreen({ job, videoFile, onReset }: ResultScreenProps) {
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [videoUrl, setVideoUrl] = useState<string>();
   const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const [playbackError, setPlaybackError] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pendingSeek = useRef<number | null>(null);
@@ -89,10 +91,11 @@ export function ResultScreen({ job, videoFile, onReset }: ResultScreenProps) {
               </h2>
               <span className="text-body-sm text-secondary">Длительность: {duration > 0 ? time(duration) : '—'}</span>
             </div>
-            <div className="aspect-video bg-inverse-surface flex items-center justify-center">
-              {videoUrl ? <video ref={videoRef} src={videoUrl} controls playsInline preload="metadata"
+            <div className="relative aspect-video bg-inverse-surface flex items-center justify-center">
+              {videoUrl ? <video ref={videoRef} src={videoUrl} controls autoPlay muted playsInline preload="metadata"
                 aria-label={`Видеозапись ${videoFile?.name ?? ''}`} className="w-full h-full object-contain"
                 onError={() => setPlaybackError(true)}
+                onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)}
                 onLoadedMetadata={event => {
                   const video = event.currentTarget;
                   setDuration(Number.isFinite(video.duration) ? video.duration : 0);
@@ -102,6 +105,10 @@ export function ResultScreen({ job, videoFile, onReset }: ResultScreenProps) {
                     pendingSeek.current = null;
                   }
                 }} /> : <p className="text-inverse-on-surface text-body-md">Исходное видео недоступно. Загрузите запись повторно.</p>}
+              {videoUrl && <div className="absolute top-3 left-3 right-3 flex flex-wrap justify-between gap-2 pointer-events-none text-body-sm text-inverse-on-surface">
+                <span className="rounded bg-inverse-surface/80 px-2 py-1 font-mono">{time(currentTime)} / {time(duration)}</span>
+                {selected && <span className="rounded bg-primary-container/90 px-2 py-1">Выбрано событие {selectedIdx + 1} · {time(seconds(selected.timecode))}</span>}
+              </div>}
             </div>
             {playbackError && <p role="alert" className="p-4 text-body-md text-error">Браузер не может воспроизвести кодек этой записи. Для просмотра используйте MP4 с видео H.264.</p>}
             <div className="px-4 pt-3 pb-5">
@@ -134,6 +141,12 @@ export function ResultScreen({ job, videoFile, onReset }: ResultScreenProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <section className={panel}>
               <h3 className="text-headline-md flex items-center gap-2"><span className="material-symbols-outlined text-primary-container">visibility</span>Что видно на видео</h3>
+              {selected && <div className="mt-2 flex flex-wrap items-center gap-2 text-body-sm">
+                <span className="text-secondary">Тип: {selected.type}</span>
+                <button type="button" onClick={() => selectEvent(selectedIdx)} className="rounded bg-primary-fixed/50 px-2 py-1 text-primary-container">
+                  Перейти к {time(seconds(selected.timecode))}
+                </button>
+              </div>}
               <p className="mt-2 text-body-md leading-relaxed">{selected?.description ?? 'По результатам анализа признаков нарушений не обнаружено. Запись можно просмотреть целиком.'}</p>
             </section>
             <section className={panel}>

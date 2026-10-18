@@ -18,9 +18,11 @@ const STATUS_LABEL: Record<string, string> = {
 
 /** Экран обработки в стиле Reference_1. */
 export function ProcessingScreen({ job, phase, error, onReset }: ProcessingScreenProps) {
-  const progress = job?.progress ?? 0;
   const isFailed = phase === 'failed' || phase === 'error';
   const isDone = phase === 'done';
+  const progress = isDone ? 100 : typeof job?.progress === 'number' && Number.isFinite(job.progress)
+    ? Math.min(100, Math.max(0, job.progress)) : undefined;
+  const waiting = !isFailed && !isDone;
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
@@ -38,24 +40,26 @@ export function ProcessingScreen({ job, phase, error, onReset }: ProcessingScree
 
       <div className="bg-surface-container-lowest rounded-xl shadow-sm p-6 space-y-4">
         {/* Прогресс-бар в цветах темы */}
-        <div
+        {!isFailed && <div
           className="h-2 w-full overflow-hidden rounded-full bg-surface-container-highest"
           role="progressbar"
+          aria-label="Анализ видео"
+          aria-valuetext={progress === undefined ? 'Ожидаем результат анализа' : `${progress}%`}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={progress}
         >
           <div
             className={`h-full rounded-full transition-all duration-500 ${
-              isFailed ? 'bg-error' : 'bg-primary-container'
+              waiting && progress === undefined ? 'bg-primary-container ml-progress-indeterminate' : 'bg-primary-container'
             }`}
-            style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+            style={{ width: progress === undefined ? '35%' : `${progress}%` }}
           />
-        </div>
+        </div>}
 
         <div className="flex items-center justify-between font-label-md text-label-md">
-          <span className="text-on-surface">{job?.status ? STATUS_LABEL[job.status] : 'Подготовка…'}</span>
-          <span className="font-body-md-tabular text-body-md-tabular text-secondary">{progress}%</span>
+          <span className="text-on-surface" role="status">{isFailed ? STATUS_LABEL[phase] : waiting ? 'Анализируем видео — ожидаем ответ ML' : 'Готово'}</span>
+          {!isFailed && <span className="font-body-md-tabular text-body-md-tabular text-secondary">{progress === undefined ? 'В процессе…' : `${progress}%`}</span>}
         </div>
 
         {(phase === 'failed' || phase === 'error') && (
